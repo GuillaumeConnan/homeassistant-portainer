@@ -172,7 +172,17 @@ This ensures stability across container recreations.
 **Location**: `sensor.py`, `ContainerSensor.device_info`
 
 **Device Identifiers**:
+The parent endpoint must already be registered. Resolve its Home Assistant device
+registry entry before building the child device info:
 ```python
+from homeassistant.helpers import device_registry as dr
+
+device_registry = dr.async_get(hass)
+parent_device = device_registry.async_get_device(
+    identifiers={(DOMAIN, f"{endpoint_id}_{config_entry_id}")}
+)
+parent_device_id = parent_device.id if parent_device else None
+
 {
     "identifiers": {
         (DOMAIN, f"{config_entry_id}_{endpoint_id}_{container_name}")
@@ -180,7 +190,7 @@ This ensures stability across container recreations.
     "name": container_name,
     "manufacturer": "Portainer",
     "model": "Container",
-    "via_device": (DOMAIN, f"{endpoint_id}_{config_entry_id}")
+    "via_device_id": parent_device_id
 }
 ```
 
