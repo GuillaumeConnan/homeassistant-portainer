@@ -1,0 +1,136 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Configurer l’intégration Portainer",
+                "description": "Saisissez les informations de connexion à votre instance Portainer.",
+                "data": {
+                    "name": "Nom de l’intégration",
+                    "host": "Hôte (par ex. 192.168.0.2:9000)",
+                    "api_key": "Jeton d’accès",
+                    "ssl": "Utiliser SSL",
+                    "verify_ssl": "Vérifier le certificat SSL"
+                }
+            },
+            "endpoints": {
+                "title": "Sélectionner les points de terminaison",
+                "description": "Choisissez les points de terminaison Portainer à importer dans Home Assistant.",
+                "data": {
+                    "endpoints": "Points de terminaison"
+                }
+            },
+            "select_items": {
+                "title": "Sélectionner les éléments",
+                "description": "Choisissez les conteneurs et les stacks à importer dans Home Assistant.",
+                "data": {
+                    "containers": "Conteneurs",
+                    "stacks": "Stacks"
+                }
+            },
+            "features": {
+                "title": "Configurer les fonctionnalités",
+                "description": "Activez ou désactivez les fonctionnalités supplémentaires de l’intégration.",
+                "data": {
+                    "feature_switch_health_check": "Activer le capteur de vérification d’état",
+                    "feature_switch_restart_policy": "Activer le capteur de politique de redémarrage",
+                    "feature_use_action_buttons": "Créer des boutons d’action pour les conteneurs et les stacks"
+                }
+            }
+        },
+        "error": {
+            "name_exists": "Une intégration portant ce nom existe déjà.",
+            "cannot_connect": "Connexion impossible. Vérifiez l’hôte et le jeton d’accès.",
+            "endpoint_fetch_failed": "Impossible de récupérer les points de terminaison. Vérifiez la connexion et réessayez.",
+            "no_endpoints_found": "Aucun point de terminaison n’a été trouvé sur cet hôte.",
+            "no_endpoints_selected": "Veuillez sélectionner au moins un point de terminaison.",
+            "item_fetch_failed": "Impossible de récupérer les conteneurs ou les stacks. Vérifiez la connexion et réessayez."
+        },
+        "abort": {
+            "already_configured": "Cette instance Portainer est déjà configurée.",
+            "item_fetch_failed": "Impossible de récupérer les conteneurs ou les stacks. Vérifiez la connexion et réessayez."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Gérer les points de terminaison Portainer",
+                "description": "Choisissez les points de terminaison Portainer à surveiller dans Home Assistant.",
+                "data": {
+                    "endpoints": "Points de terminaison"
+                }
+            },
+            "select_items": {
+                "title": "Gérer les conteneurs et les stacks",
+                "description": "Choisissez les conteneurs et les stacks à surveiller dans Home Assistant.",
+                "data": {
+                    "containers": "Conteneurs",
+                    "stacks": "Stacks"
+                }
+            },
+            "features": {
+                "title": "Configurer les fonctionnalités",
+                "description": "Activez ou désactivez les fonctionnalités supplémentaires de l’intégration.",
+                "data": {
+                    "feature_switch_health_check": "Activer le capteur de vérification d’état",
+                    "feature_switch_restart_policy": "Activer le capteur de politique de redémarrage",
+                    "feature_use_action_buttons": "Créer des boutons d’action pour les conteneurs et les stacks"
+                }
+            }
+        },
+        "error": {
+            "endpoint_fetch_failed": "Impossible de récupérer les points de terminaison. Vérifiez la connexion et réessayez."
+        }
+    },
+    "services": {
+        "perform_container_action": {
+            "name": "Exécuter une action sur le conteneur",
+            "description": "Exécute une action spécifiée (démarrer, arrêter, redémarrer, tuer, supprimer) sur un ou plusieurs conteneurs.",
+            "fields": {
+                "action": {
+                    "name": "Action",
+                    "description": "Action à exécuter sur les conteneurs."
+                },
+                "container_devices": {
+                    "name": "Appareils conteneur",
+                    "description": "Liste des appareils de conteneur Docker sur lesquels exécuter l’action."
+                },
+                "force": {
+                    "name": "Forcer la suppression",
+                    "description": "Forcer la suppression des conteneurs en cours d’exécution. Uniquement pour l’action de suppression."
+                },
+                "remove_volumes": {
+                    "name": "Supprimer les volumes anonymes",
+                    "description": "Supprimer les volumes anonymes associés aux conteneurs. Les volumes nommés ne sont pas supprimés. Uniquement pour l’action de suppression."
+                }
+            }
+        },
+        "perform_stack_action": {
+            "name": "Exécuter une action sur la stack",
+            "description": "Exécute une action spécifiée (démarrer, arrêter) sur une ou plusieurs stacks.",
+            "fields": {
+                "action": {
+                    "name": "Action",
+                    "description": "Action à exécuter sur les stacks."
+                },
+                "stack_devices": {
+                    "name": "Appareils stack",
+                    "description": "Liste des appareils de stack Portainer sur lesquels exécuter l’action."
+                }
+            }
+        },
+        "recreate_container": {
+            "name": "Recréer le conteneur",
+            "description": "Recrée un conteneur en récupérant la dernière image.",
+            "fields": {
+                "container_devices": {
+                    "name": "Appareils conteneur",
+                    "description": "Liste des appareils Docker à recréer."
+                },
+                "pull_image": {
+                    "name": "Récupérer l’image",
+                    "description": "Indique s’il faut récupérer la dernière image avant de recréer le conteneur."
+                }
+            }
+        }
+    }
+}
