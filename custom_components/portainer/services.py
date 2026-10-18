@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 
@@ -11,6 +12,10 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import DOMAIN
+from .api import PortainerAPI
+
+if TYPE_CHECKING:
+    from .coordinator import PortainerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,379 +27,170 @@ ATTR_CONTAINER_DEVICES = "container_devices"
 ATTR_STACK_DEVICES = "stack_devices"
 
 
-async def _handle_recreate_container(call: ServiceCall) -> None:
-    """Handle the service call to recreate a container."""
-    hass = call.hass
-    container_device_ids = call.data.get(ATTR_CONTAINER_DEVICES)
+async def async_execute_action(
+    hass: HomeAssistant,
+    api: PortainerAPI,
+    service_path: str,
+    method: str,
+    params: dict[str, Any],
+) -> list[dict[str, Any]] | dict[str, Any] | None:
+    """Report API failures consistently, including successful empty responses."""
+    try:
+        result = await hass.async_add_executor_job(
+            api.query, service_path, method, params
+        )
+    except Exception as error:
+        raise HomeAssistantError(f"Portainer action failed: {error}") from error
+    if api.error:
+        raise HomeAssistantError(f"Portainer action failed: {api.error}")
+    return result
 
-    if not container_device_ids:
-        _LOGGER.warning("No container devices provided for recreate action")
-        return
 
-    device_reg = dr.async_get(hass)
-
-    devices_by_config_entry: dict[str, list[str]] = {}
-    for device_id in container_device_ids:
-        device_entry = device_reg.async_get(device_id)
-        if (
-            not device_entry
-            or not device_entry.identifiers
-            or not device_entry.config_entries
-        ):
-            _LOGGER.warning(
-                "Device '%s' not found or not associated with a config entry. Skipping.",
-                device_id,
-            )
-            continue
-
-        config_entry_id = next(iter(device_entry.config_entries))
-        if config_entry_id not in devices_by_config_entry:
-            devices_by_config_entry[config_entry_id] = []
-
-        identifier = next(iter(device_entry.identifiers))[1]
-        devices_by_config_entry[config_entry_id].append(identifier)
-
-    for config_entry_id, docker_container_ids in devices_by_config_entry.items():
-        entry_data = hass.data[DOMAIN].get(config_entry_id)
-        if not entry_data:
-            _LOGGER.error(
-                "Config entry %s not found in %s data.", config_entry_id, DOMAIN
-            )
-            continue
+def _resolve_device(
+    hass: HomeAssistant, registry: dr.DeviceRegistry, device_id: str, model: str
+) -> tuple[PortainerCoordinator, str]:
+    """Resolve an exact integration identifier to a loaded coordinator."""
+    device = registry.async_get(device_id)
+    if not device:
+        raise HomeAssistantError(f"Device '{device_id}' not found")
+    if device.model != model:
+        raise HomeAssistantError(f"Device '{device_id}' is not a Portainer {model}")
+    for entry_id in device.config_entries:
+        entry_data = hass.data.get(DOMAIN, {}).get(entry_id, {})
         coordinator = entry_data.get("coordinator")
-        pull_image = call.data.get(
-            "pull_image", True
-        )  # Default to True if not provided
-        if not coordinator:
-            _LOGGER.error("Coordinator for config entry %s not found.", config_entry_id)
+        if coordinator is None:
             continue
-
-        for identifier in docker_container_ids:
-            try:
-                # Identifier format: {config_entry_id}_{endpoint_id}_{name}
-                # Remove config_entry_id prefix to get endpoint_id and container_name
-                identifier_without_config = identifier.replace(
-                    f"{config_entry_id}_", "", 1
-                )
-                endpoint_id, container_name = identifier_without_config.split("_", 1)
-                if await coordinator.async_recreate_container(
-                    endpoint_id, container_name, pull_image
-                ):
-                    _LOGGER.info(
-                        "Successfully recreated container '%s' on instance '%s'",
-                        container_name,
-                        coordinator.name,
-                    )
-                else:
-                    _LOGGER.error(
-                        "Failed to recreate container '%s' on instance '%s': %s",
-                        container_name,
-                        coordinator.name,
-                        coordinator.api.error or "unknown error",
-                    )
-            except (KeyError, ValueError) as e:
-                _LOGGER.error(
-                    "Failed to recreate container '%s' on instance '%s': %s",
-                    identifier,
-                    coordinator.name,
-                    e,
-                )
-            # If other unexpected exceptions may occur, you can add a generic handler with a comment:
-            except Exception as e:
-                # Catch-all for unexpected errors; consider narrowing this further if possible.
-                _LOGGER.error(
-                    "Unexpected error while recreating container '%s' on instance '%s': %s",
-                    identifier,
-                    coordinator.name,
-                    e,
-                )
-        await coordinator.async_request_refresh()
+        prefix = f"{entry_id}_stack_" if model == "Stack" else f"{entry_id}_"
+        for domain, identifier in device.identifiers:
+            if domain == DOMAIN and identifier.startswith(prefix):
+                resource = identifier[len(prefix) :]
+                if model == "Stack" and resource.isdigit():
+                    return coordinator, resource
+                if model == "Container":
+                    endpoint_id, separator, name = resource.partition("_")
+                    if endpoint_id.isdigit() and separator and name:
+                        return coordinator, resource
+    raise HomeAssistantError(
+        f"Device '{device_id}' has no valid identifier for a loaded Portainer entry"
+    )
 
 
-async def _handle_perform_container_action(call: ServiceCall) -> None:
-    """Handle the service call to perform an action on multiple containers."""
+async def _async_handle_action(
+    call: ServiceCall, *, model: str, recreate: bool = False
+) -> None:
+    """Attempt all targets, refresh changed entries and report every failure."""
     hass = call.hass
-    action: str = call.data.get(ATTR_ACTION)  # type: ignore
-    container_device_ids = call.data.get(ATTR_CONTAINER_DEVICES)
+    action = "recreate" if recreate else call.data.get(ATTR_ACTION)
+    if recreate:
+        allowed = ("recreate",)
+    elif model == "Stack":
+        allowed = ("start", "stop")
+    else:
+        allowed = ("start", "stop", "restart", "kill", "remove")
+    if action not in allowed:
+        raise HomeAssistantError(f"Unsupported Portainer action: {action}")
+    targets = call.data.get(
+        ATTR_STACK_DEVICES if model == "Stack" else ATTR_CONTAINER_DEVICES
+    )
+    if not targets:
+        raise HomeAssistantError("No Portainer devices provided")
 
-    if not container_device_ids:
-        _LOGGER.warning("No container devices provided for action '%s'", action)
-        return
-
-    device_reg = dr.async_get(hass)
-    entity_reg = er.async_get(hass)
-    removal_errors = []
-
-    devices_by_config_entry: dict[str, list[tuple[str, str]]] = {}
-    for device_id in container_device_ids:
-        device_entry = device_reg.async_get(device_id)
-        if (
-            not device_entry
-            or not device_entry.identifiers
-            or not device_entry.config_entries
-        ):
-            _LOGGER.warning(
-                "Device '%s' not found or not associated with a config entry. Skipping.",
-                device_id,
-            )
-            continue
-
-        config_entry_id = next(iter(device_entry.config_entries))
-        if config_entry_id not in devices_by_config_entry:
-            devices_by_config_entry[config_entry_id] = []
-
-        identifier = next(iter(device_entry.identifiers))[1]
-        devices_by_config_entry[config_entry_id].append((device_id, identifier))
-
-    for config_entry_id, device_info_list in devices_by_config_entry.items():
-        entry_data = hass.data[DOMAIN].get(config_entry_id)
-        if not entry_data:
-            _LOGGER.error(
-                "Config entry %s not found in %s data.", config_entry_id, DOMAIN
-            )
-            continue
-        coordinator = entry_data.get("coordinator")
-        if not coordinator:
-            _LOGGER.error("Coordinator for config entry %s not found.", config_entry_id)
-            continue
-
-        for device_id, identifier in device_info_list:
-            try:
-                # Identifier format: {config_entry_id}_{endpoint_id}_{name}
-                # Remove config_entry_id prefix to get endpoint_id and container_name
-                identifier_without_config = identifier.replace(
-                    f"{config_entry_id}_", "", 1
+    registry = dr.async_get(hass)
+    errors: list[str] = []
+    coordinators: set[PortainerCoordinator] = set()
+    for device_id in targets:
+        try:
+            coordinator, resource = _resolve_device(hass, registry, device_id, model)
+            coordinators.add(coordinator)
+            if model == "Stack":
+                stack = await async_execute_action(
+                    hass, coordinator.api, f"stacks/{resource}", "GET", {}
                 )
-                endpoint_id, container_name = identifier_without_config.split("_", 1)
-                # Get the actual container ID from the coordinator data
-                container = coordinator.get_specific_container(
-                    endpoint_id, container_name
-                )
-                if not container:
-                    _LOGGER.error(
-                        "Container '%s' on endpoint '%s' not found in coordinator data",
-                        container_name,
-                        endpoint_id,
+                if not isinstance(stack, dict) or not stack.get("EndpointId"):
+                    raise HomeAssistantError(
+                        f"Stack '{resource}' or its endpoint not found"
                     )
-                    continue
-
-                container_id = container.get("Id")
-                if not container_id:
-                    _LOGGER.error(
-                        "Container '%s' on endpoint '%s' does not have a valid ID",
-                        container_name,
-                        endpoint_id,
-                    )
-                    continue
-
-                service_path = (
-                    f"endpoints/{endpoint_id}/docker/containers/{container_id}/{action}"
+                await async_execute_action(
+                    hass,
+                    coordinator.api,
+                    f"stacks/{resource}/{action}?endpointId={stack['EndpointId']}",
+                    "POST",
+                    {},
                 )
-                method = "POST"
-                params = {}
-                if action == "remove":
-                    service_path = (
-                        f"endpoints/{endpoint_id}/docker/containers/{container_id}"
-                    )
-                    method = "DELETE"
-                    params = {
-                        "force": str(call.data.get("force", False)).lower(),
-                        "v": str(call.data.get("remove_volumes", False)).lower(),
-                    }
-                _LOGGER.debug(
-                    "Performing '%s' action on container ID '%s' via path '%s'",
-                    action,
-                    container_id,
-                    service_path,
-                )
-                await call.hass.async_add_executor_job(
-                    coordinator.api.query, service_path, method, params
-                )
-                if not coordinator.api.error:
-                    if container_name:
-                        _LOGGER.info(
-                            "Successfully performed '%s' on container '%s' on instance '%s'",
-                            action,
-                            container_name,
-                            coordinator.name,
+            else:
+                endpoint_id, name = resource.split("_", 1)
+                if recreate:
+                    if not await coordinator.async_recreate_container(
+                        endpoint_id, name, call.data.get("pull_image", True)
+                    ):
+                        raise HomeAssistantError(
+                            f"Failed to recreate '{name}': {coordinator.api.error or 'container not found'}"
                         )
                 else:
-                    _LOGGER.error(
-                        "Failed to perform '%s' on container '%s' on instance '%s': %s",
-                        action,
-                        container_name,
-                        coordinator.name,
-                        coordinator.api.error or "unknown error",
+                    container = coordinator.get_specific_container(endpoint_id, name)
+                    if not container or not container.get("Id"):
+                        raise HomeAssistantError(
+                            f"Container '{name}' not found on endpoint {endpoint_id}"
+                        )
+                    path = (
+                        f"endpoints/{endpoint_id}/docker/containers/{container['Id']}"
+                    )
+                    params = {}
+                    method = "POST"
+                    if action == "remove":
+                        method = "DELETE"
+                        params = {
+                            "force": str(call.data.get("force", False)).lower(),
+                            "v": str(call.data.get("remove_volumes", False)).lower(),
+                        }
+                    else:
+                        path += f"/{action}"
+                    await async_execute_action(
+                        hass, coordinator.api, path, method, params
                     )
                     if action == "remove":
-                        removal_errors.append(
-                            f"{container_name}: {coordinator.api.error}"
-                        )
-                    continue
+                        entity_registry = er.async_get(hass)
+                        for entity in er.async_entries_for_device(
+                            entity_registry, device_id, include_disabled_entities=True
+                        ):
+                            entity_registry.async_remove(entity.entity_id)
+                        registry.async_remove_device(device_id)
+            _LOGGER.info(
+                "Successfully performed '%s' on Portainer device '%s'",
+                action,
+                device_id,
+            )
+        except Exception as error:
+            _LOGGER.error(
+                "Failed to perform '%s' on device '%s': %s", action, device_id, error
+            )
+            errors.append(f"{device_id}: {error}")
 
-                # If action is "remove", also remove the device and its entities from Home Assistant
-                if action == "remove":
-                    try:
-                        # Remove all entities for this device
-                        entities_for_device = er.async_entries_for_device(
-                            entity_reg, device_id, include_disabled_entities=True
-                        )
-                        for entity in entities_for_device:
-                            entity_reg.async_remove(entity.entity_id)
-                            _LOGGER.debug(
-                                "Removed entity '%s' for device '%s'",
-                                entity.entity_id,
-                                device_id,
-                            )
-
-                        device_reg.async_remove_device(device_id)
-                        _LOGGER.info(
-                            "Successfully removed container device '%s' and all its entities from Home Assistant",
-                            device_id,
-                        )
-                    except Exception as device_removal_error:
-                        _LOGGER.error(
-                            "Failed to remove device '%s' and its entities from Home Assistant: %s",
-                            device_id,
-                            device_removal_error,
-                        )
-                        removal_errors.append(f"{device_id}: {device_removal_error}")
-
-            except Exception as e:
-                _LOGGER.error(
-                    "Failed to perform '%s' on container '%s' on instance '%s': %s",
-                    action,
-                    container_name,
-                    coordinator.name,
-                    e,
-                )
-                if action == "remove":
-                    removal_errors.append(f"{identifier}: {e}")
-
-        await coordinator.async_request_refresh()
-
-    if removal_errors:
+    for coordinator in coordinators:
+        try:
+            await coordinator.async_request_refresh()
+        except Exception as error:
+            errors.append(f"Refresh failed: {error}")
+    if errors:
         raise HomeAssistantError(
-            "Failed to remove Portainer containers: " + "; ".join(removal_errors)
+            f"Failed to {action} Portainer {'containers' if model == 'Container' else 'stacks'}: "
+            + "; ".join(errors)
         )
 
 
+async def _handle_recreate_container(call: ServiceCall) -> None:
+    """Handle container recreation."""
+    await _async_handle_action(call, model="Container", recreate=True)
+
+
+async def _handle_perform_container_action(call: ServiceCall) -> None:
+    """Handle container actions."""
+    await _async_handle_action(call, model="Container")
+
+
 async def _handle_perform_stack_action(call: ServiceCall) -> None:
-    """Handle the service call to perform an action on multiple stacks."""
-    hass = call.hass
-    action: str = call.data.get(ATTR_ACTION)  # type: ignore
-    stack_device_ids = call.data.get(ATTR_STACK_DEVICES)
-
-    if not stack_device_ids:
-        _LOGGER.warning("No stack devices provided for action '%s'", action)
-        return
-
-    device_reg = dr.async_get(hass)
-
-    devices_by_config_entry: dict[str, list[str]] = {}
-    for device_id in stack_device_ids:
-        device_entry = device_reg.async_get(device_id)
-        if (
-            not device_entry
-            or not device_entry.identifiers
-            or not device_entry.config_entries
-        ):
-            _LOGGER.warning(
-                "Device '%s' not found or not associated with a config entry. Skipping.",
-                device_id,
-            )
-            continue
-
-        config_entry_id = next(iter(device_entry.config_entries))
-        if config_entry_id not in devices_by_config_entry:
-            devices_by_config_entry[config_entry_id] = []
-
-        identifier = next(iter(device_entry.identifiers))[1]
-        # Identifier format: {config_entry_id}_stack_{stack_id}
-        # Remove config_entry_id prefix to get stack_{stack_id}
-        identifier_without_config = identifier.replace(f"{config_entry_id}_", "", 1)
-        if identifier_without_config.startswith("stack_"):
-            stack_id_str = identifier_without_config.replace("stack_", "")
-            if stack_id_str.isdigit():
-                devices_by_config_entry[config_entry_id].append(stack_id_str)
-
-    for config_entry_id, stack_ids in devices_by_config_entry.items():
-        entry_data = hass.data[DOMAIN].get(config_entry_id)
-        if not entry_data:
-            _LOGGER.error(
-                "Config entry %s not found in %s data.", config_entry_id, DOMAIN
-            )
-            continue
-        coordinator = entry_data.get("coordinator")
-        if not coordinator:
-            _LOGGER.error("Coordinator for config entry %s not found.", config_entry_id)
-            continue
-
-        for stack_id in stack_ids:
-            try:
-                # Get the stack details to find endpoint_id
-                # Stack ID is global in Portainer API for stacks but we need endpointId for the query
-                # Actually, the stacks endpoint is /stacks/{id}/{action}?endpointId={endpointId}
-
-                # We need to find the endpointId for this stack.
-                # The coordinator data should have it if we've synced.
-                stack_info = None
-
-                # Check if we can find it in the coordinator's cached data
-                # Since we don't have a get_specific_stack, we'll try to find it in the data
-                if coordinator.api.query:
-                    # We can try to get the stack details from the API first to get the endpointId
-                    stack_info = await hass.async_add_executor_job(
-                        coordinator.api.query, f"stacks/{stack_id}", "GET", {}
-                    )
-
-                if not stack_info:
-                    _LOGGER.error(
-                        "Could not find stack info for stack ID '%s'", stack_id
-                    )
-                    continue
-
-                endpoint_id = stack_info.get("EndpointId")
-                if not endpoint_id:
-                    _LOGGER.error(
-                        "Could not find endpoint ID for stack ID '%s'", stack_id
-                    )
-                    continue
-
-                service_path = f"stacks/{stack_id}/{action}?endpointId={endpoint_id}"
-                _LOGGER.debug(
-                    "Performing '%s' action on stack ID '%s' via path '%s'",
-                    action,
-                    stack_id,
-                    service_path,
-                )
-                await call.hass.async_add_executor_job(
-                    coordinator.api.query, service_path, "POST", {}
-                )
-                if not coordinator.api.error:
-                    _LOGGER.info(
-                        "Successfully performed '%s' on stack '%s' on instance '%s'",
-                        action,
-                        stack_id,
-                        coordinator.name,
-                    )
-                else:
-                    _LOGGER.error(
-                        "Failed to perform '%s' on stack '%s' on instance '%s': %s",
-                        action,
-                        stack_id,
-                        coordinator.name,
-                        coordinator.api.error or "unknown error",
-                    )
-            except Exception as e:
-                _LOGGER.error(
-                    "Failed to perform '%s' on stack '%s' on instance '%s': %s",
-                    action,
-                    stack_id,
-                    coordinator.name,
-                    e,
-                )
-        await coordinator.async_request_refresh()
+    """Handle stack actions."""
+    await _async_handle_action(call, model="Stack")
 
 
 async def async_register_services(hass: HomeAssistant) -> None:
@@ -425,7 +221,6 @@ async def async_register_services(hass: HomeAssistant) -> None:
             }
         ),
     )
-
     hass.services.async_register(
         DOMAIN,
         SERVICE_RECREATE_CONTAINER,

@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.portainer.button import (
     BUTTON_TYPES,
@@ -31,6 +32,7 @@ class TestPortainerButtons:
         coordinator.config_entry.entry_id = "test_entry_id"
         coordinator.config_entry.data = {"name": "Test Portainer"}
         coordinator.api = Mock()
+        coordinator.api.error = ""
         coordinator.api.query = Mock()
         coordinator.api._url = "http://localhost:9000/api/"
         coordinator.async_request_refresh = AsyncMock()
@@ -278,7 +280,8 @@ class TestPortainerButtons:
         button.hass = mock_hass
         button._data = {}  # Missing required fields
 
-        await button.async_press()
+        with pytest.raises(HomeAssistantError, match="missing"):
+            await button.async_press()
 
         # Should not call API when data is missing
         mock_hass.async_add_executor_job.assert_not_called()
@@ -415,3 +418,40 @@ class TestPortainerButtons:
             "POST",
             {},
         )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("description", BUTTON_TYPES)
+    @pytest.mark.parametrize("error", [401, 409, 500, "no_response"])
+    async def test_button_actions_report_api_failures(
+        self, mock_hass, mock_coordinator, description, error
+    ):
+        """Every container and stack button must fail visibly on API rejection."""
+        button_type = (
+            ContainerActionButton
+            if description.data_path == "containers"
+            else StackActionButton
+        )
+        uid = (
+            "test_entry_id_1_web-server"
+            if description.data_path == "containers"
+            else "test_entry_id_stack_1"
+        )
+        button = button_type(mock_coordinator, description, uid=uid)
+        button.hass = mock_hass
+        mock_coordinator.api.error = error
+        with pytest.raises(HomeAssistantError, match=str(error)):
+            await button.async_press()
+        mock_coordinator.async_request_refresh.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stack_button_does_not_swallow_unexpected_api_exception(
+        self, mock_hass, mock_coordinator
+    ):
+        """Raised connection exceptions are also surfaced to the button caller."""
+        button = StackActionButton(
+            mock_coordinator, BUTTON_TYPES[4], uid="test_entry_id_stack_1"
+        )
+        button.hass = mock_hass
+        mock_hass.async_add_executor_job.side_effect = OSError("connection lost")
+        with pytest.raises(HomeAssistantError, match="connection lost"):
+            await button.async_press()

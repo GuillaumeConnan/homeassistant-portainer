@@ -15,12 +15,17 @@ from custom_components.portainer.const import CONF_FEATURE_USE_ACTION_BUTTONS
 def mock_hass():
     """Create a Home Assistant mock that runs executor jobs inline."""
     hass = Mock()
+    hass.data = {}
 
     async def run_executor_job(func, *args):
         return func(*args)
 
     hass.async_add_executor_job = AsyncMock(side_effect=run_executor_job)
-    return hass
+    with patch("custom_components.portainer.config_flow.dr.async_get"), patch(
+        "custom_components.portainer.config_flow.dr.async_entries_for_config_entry",
+        return_value=[],
+    ):
+        yield hass
 
 
 @pytest.mark.asyncio
@@ -298,7 +303,7 @@ async def test_failed_connection_preserves_unverified_tls_on_retry(mock_hass):
             }
         )
 
-    assert show_form.call_args.kwargs["errors"] == {"host": "no_response"}
+    assert show_form.call_args.kwargs["errors"] == {"base": "cannot_connect"}
     defaults = show_form.call_args.kwargs["data_schema"](
         {"name": "Portainer", "host": "localhost:9443", "api_key": "test"}
     )
@@ -372,6 +377,286 @@ async def test_options_save_keeps_stack_selections_and_existing_tls_setting(mock
     mock_dr.async_get.return_value.async_remove_device.assert_not_called()
     saved = create_entry.call_args.kwargs["data"]
     assert saved["stacks"] == ["11", "22"]
-    assert saved["containers"] == ["entry_1_web"]
+    assert saved["containers"] == ["1_web"]
     assert saved["endpoints"] == ["1", "2"]
     assert entry.data["verify_ssl"] is False
+
+
+@pytest.fixture
+def selection_entry():
+    """Entry with historical selections stored before the first options save."""
+    return Mock(
+        entry_id="entry",
+        data={
+            "name": "My_Portainer",
+            "host": "host:9443",
+            "api_key": "token",
+            "ssl": True,
+            "verify_ssl": True,
+            "endpoints": ["1", "10"],
+            "containers": ["My_Portainer_1_web_api", "entry_10_database"],
+            "stacks": ["1", "10"],
+            CONF_FEATURE_USE_ACTION_BUTTONS: False,
+        },
+        options={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_setup_uses_endpoint_name_selection_identifiers(mock_hass):
+    """New selection IDs do not depend on an entry ID or integration name."""
+    flow = PortainerConfigFlow()
+    flow.hass = mock_hass
+    flow.options = {"name": "My_Portainer", "endpoints": ["1"]}
+    flow.api = Mock()
+    flow.api.get_endpoints.return_value = [{"id": "1", "status": 1}]
+    flow.api.get_containers.return_value = [
+        {"endpoint_id": "1", "name": "web_api", "status": "running"}
+    ]
+    flow.api.get_stacks.return_value = []
+    with patch.object(flow, "async_show_form", return_value={}) as show:
+        await flow.async_step_select_items()
+    schema = show.call_args.kwargs["data_schema"]
+    assert schema({"containers": ["1_web_api"]})["containers"] == ["1_web_api"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("offline", [True, False])
+async def test_options_keep_missing_resources_and_normalize_legacy_defaults(
+    mock_hass, selection_entry, offline
+):
+    """Absent resources remain checked, including before the first options save."""
+    flow = PortainerOptionsFlow()
+    flow.hass = mock_hass
+    api = Mock()
+    api.get_endpoints.return_value = [{"id": "1", "status": 2 if offline else 1}]
+    api.get_containers.return_value = []
+    api.get_stacks.return_value = []
+    with patch("homeassistant.config_entries.report_usage"), patch(
+        "custom_components.portainer.config_flow.PortainerAPI", return_value=api
+    ), patch.object(flow, "async_show_form", return_value={}) as show:
+        flow.config_entry = selection_entry
+        await flow.async_step_select_items()
+    defaults = show.call_args.kwargs["data_schema"]({})
+    assert defaults["containers"] == ["1_web_api", "10_database"]
+    assert defaults["stacks"] == ["1", "10"]
+    assert defaults[CONF_FEATURE_USE_ACTION_BUTTONS] is False
+    if offline:
+        api.get_containers.assert_not_called()
+        api.get_stacks.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_endpoint_form_retains_unlisted_saved_endpoints(
+    mock_hass, selection_entry
+):
+    """A temporarily absent endpoint remains an explicit selectable choice."""
+    flow = PortainerOptionsFlow()
+    flow.hass = mock_hass
+    api = Mock()
+    api.get_endpoints.return_value = []
+    with patch("homeassistant.config_entries.report_usage"), patch(
+        "custom_components.portainer.config_flow.PortainerAPI", return_value=api
+    ), patch.object(flow, "async_show_form", return_value={}) as show:
+        flow.config_entry = selection_entry
+        await flow.async_step_init()
+    assert show.call_args.kwargs["data_schema"]({})["endpoints"] == ["1", "10"]
+
+
+@pytest.mark.asyncio
+async def test_endpoint_changes_are_staged_until_final_submission(
+    mock_hass, selection_entry
+):
+    """Abandoning the second screen cannot remove existing devices."""
+    flow = PortainerOptionsFlow()
+    flow.hass = mock_hass
+    with patch("homeassistant.config_entries.report_usage"), patch(
+        "custom_components.portainer.config_flow.dr"
+    ) as registry, patch.object(
+        flow, "async_step_select_items", new_callable=AsyncMock
+    ):
+        flow.config_entry = selection_entry
+        await flow.async_step_init({"endpoints": ["10"]})
+    registry.async_get.assert_not_called()
+    assert selection_entry.options == {}
+    assert selection_entry.data["endpoints"] == ["1", "10"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("inventory_source", ["coordinator", "registry"])
+async def test_offline_stacks_are_excluded_only_for_explicitly_removed_endpoints(
+    mock_hass, selection_entry, inventory_source
+):
+    """Cached metadata distinguishes endpoint removal from an endpoint outage."""
+    flow = PortainerOptionsFlow()
+    flow.hass = mock_hass
+    flow.options = {"endpoints": ["10"]}
+    api = Mock()
+    api.get_endpoints.return_value = [{"id": "10", "status": 2}]
+    devices = []
+    if inventory_source == "coordinator":
+        mock_hass.data = {
+            "portainer": {
+                "entry": {
+                    "coordinator": Mock(
+                        data={
+                            "stacks": {"1": {"EndpointId": 1}, "10": {"EndpointId": 10}}
+                        }
+                    )
+                }
+            }
+        }
+    else:
+        devices = [
+            Mock(
+                id="endpoint1", model="Endpoint", identifiers={("portainer", "1_entry")}
+            ),
+            Mock(
+                id="endpoint10",
+                model="Endpoint",
+                identifiers={("portainer", "10_entry")},
+            ),
+            Mock(
+                model="Stack",
+                identifiers={("portainer", "entry_stack_1")},
+                via_device_id="endpoint1",
+            ),
+            Mock(
+                model="Stack",
+                identifiers={("portainer", "entry_stack_10")},
+                via_device_id="endpoint10",
+            ),
+        ]
+    with patch("homeassistant.config_entries.report_usage"), patch(
+        "custom_components.portainer.config_flow.PortainerAPI", return_value=api
+    ), patch(
+        "custom_components.portainer.config_flow.dr.async_entries_for_config_entry",
+        return_value=devices,
+    ), patch.object(
+        flow, "async_show_form", return_value={}
+    ) as show:
+        flow.config_entry = selection_entry
+        await flow.async_step_select_items()
+    defaults = show.call_args.kwargs["data_schema"]({})
+    assert defaults["containers"] == ["10_database"]
+    assert defaults["stacks"] == ["10"]
+    api.get_stacks.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_failed_inventory_never_cleans_devices(mock_hass, selection_entry):
+    """A failed second screen is non-destructive, including endpoint changes."""
+    flow = PortainerOptionsFlow()
+    flow.hass = mock_hass
+    flow.options = {"endpoints": ["10"]}
+    api = Mock()
+    api.get_endpoints.side_effect = ValueError("no_response")
+    with patch("homeassistant.config_entries.report_usage"), patch(
+        "custom_components.portainer.config_flow.PortainerAPI", return_value=api
+    ), patch("custom_components.portainer.config_flow.dr") as registry, patch.object(
+        flow, "async_abort", return_value={}
+    ):
+        flow.config_entry = selection_entry
+        await flow.async_step_select_items()
+    registry.async_get.assert_not_called()
+    assert selection_entry.options == {}
+
+
+@pytest.mark.asyncio
+async def test_final_cleanup_matches_exact_typed_identifiers(
+    mock_hass, selection_entry
+):
+    """Removing stack/endpoint 1 never removes stack/endpoint 10 or other types."""
+
+    def device(identifier, model, device_id, parent=None, domain="portainer"):
+        return Mock(
+            identifiers={(domain, identifier)},
+            model=model,
+            id=device_id,
+            via_device_id=parent,
+            config_entries={"entry"},
+        )
+
+    devices = [
+        device("1_entry", "Endpoint", "endpoint1"),
+        device("10_entry", "Endpoint", "endpoint10"),
+        device("entry_1_web_api", "Container", "container1", "endpoint1"),
+        device("entry_10_database", "Container", "container10", "endpoint10"),
+        device("entry_stack_1", "Stack", "stack1", "endpoint1"),
+        device("entry_stack_10", "Stack", "stack10", "endpoint10"),
+        device("entry_stack_1", "Container", "wrong_type"),
+        device("entry_stack_1", "Stack", "foreign_domain", "endpoint1", domain="other"),
+        device("entry_1_web_api_extra", "Container", "similar_name"),
+    ]
+    flow = PortainerOptionsFlow()
+    flow.hass = mock_hass
+    flow.options = {"endpoints": ["10"]}
+    with patch("homeassistant.config_entries.report_usage"), patch(
+        "custom_components.portainer.config_flow.dr"
+    ) as registry, patch(
+        "custom_components.portainer.config_flow.er"
+    ) as entities, patch.object(
+        flow, "async_create_entry", return_value={}
+    ):
+        flow.config_entry = selection_entry
+        registry.async_entries_for_config_entry.return_value = devices
+        entities.async_entries_for_device.return_value = [
+            Mock(entity_id="sensor.own", config_entry_id="entry"),
+            Mock(entity_id="sensor.other", config_entry_id="other"),
+        ]
+        await flow.async_step_select_items(
+            {"containers": ["10_database"], "stacks": ["10"]}
+        )
+    assert {
+        call.args[0]
+        for call in registry.async_get.return_value.async_remove_device.call_args_list
+    } == {"endpoint1", "container1", "stack1"}
+    assert all(
+        call.args == ("sensor.own",)
+        for call in entities.async_get.return_value.async_remove.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("step", ["reauth_confirm", "reconfigure"])
+@pytest.mark.parametrize("error", [401, 403, "no_response", "invalid_json", ""])
+async def test_connection_update_validates_before_saving_and_keeps_selections(
+    mock_hass, selection_entry, step, error
+):
+    """Credentials are changed only after validation, without replacing selections."""
+    flow = PortainerConfigFlow()
+    flow.hass = mock_hass
+    api = Mock()
+    api.connection_test.return_value = (not error, error)
+    credentials = {
+        "host": "new-host:9443",
+        "api_key": "new-token",
+        "ssl": True,
+        "verify_ssl": False,
+    }
+    with patch.object(
+        flow, "_get_reauth_entry", return_value=selection_entry
+    ), patch.object(
+        flow, "_get_reconfigure_entry", return_value=selection_entry
+    ), patch(
+        "custom_components.portainer.config_flow.PortainerAPI", return_value=api
+    ), patch.object(
+        flow, "async_update_reload_and_abort", return_value={}
+    ) as save, patch.object(
+        flow, "async_show_form", return_value={}
+    ) as show:
+        await getattr(flow, f"async_step_{step}")(credentials)
+    if error:
+        save.assert_not_called()
+        assert show.call_args.kwargs["errors"] == {
+            "base": "invalid_auth" if error in (401, 403) else "cannot_connect"
+        }
+        defaults = show.call_args.kwargs["data_schema"]({})
+        assert defaults == credentials
+    else:
+        save.assert_called_once_with(selection_entry, data_updates=credentials)
+    assert selection_entry.data["containers"] == [
+        "My_Portainer_1_web_api",
+        "entry_10_database",
+    ]
+    assert selection_entry.options == {}

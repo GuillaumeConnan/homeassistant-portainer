@@ -15,7 +15,7 @@ from homeassistant.util import slugify
 
 from .const import ATTRIBUTION, CUSTOM_ATTRIBUTE_ARRAY, DOMAIN
 from .coordinator import PortainerCoordinator
-from .helper import format_attribute, format_camel_case
+from .helper import format_attribute
 
 _LOGGER = getLogger(__name__)
 
@@ -57,6 +57,8 @@ async def async_create_sensors(
                             coordinator.selected_containers
                             and device_identifier not in coordinator.selected_containers
                             and config_name_identifier
+                            not in coordinator.selected_containers
+                            and f"{endpoint_id}_{container_name}"
                             not in coordinator.selected_containers
                         ):
                             continue
@@ -139,21 +141,13 @@ class PortainerEntity(CoordinatorEntity[PortainerCoordinator], Entity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        try:
-            self._data = self.coordinator.data[self.description.data_path]
-            if self._uid:
-                if self.description.data_path == "containers":
-                    self._data = self.coordinator.data[self.description.data_path][
-                        self._uid
-                    ]
-                else:
-                    self._data = self.coordinator.data[self.description.data_path][
-                        self._uid
-                    ]
-            super()._handle_coordinator_update()
-        except KeyError:
-            _LOGGER.debug("Error while updating entity %s", self.unique_id)
-            pass
+        data = self.coordinator.data.get(self.description.data_path, {})
+        if self._uid is None:
+            self._data = data
+        elif self._uid in data:
+            self._data = data[self._uid]
+        # Retain identity metadata when missing, but always publish availability.
+        super()._handle_coordinator_update()
 
     @property
     def name(self) -> str:

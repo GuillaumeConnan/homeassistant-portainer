@@ -12,15 +12,13 @@ from homeassistant.components.button import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import entity_platform as ep
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_FEATURE_USE_ACTION_BUTTONS, DOMAIN
+from .const import DOMAIN
 from .coordinator import PortainerCoordinator
 from .entity import PortainerEntity, async_create_sensors
+from .services import async_execute_action
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -144,29 +142,30 @@ async def async_setup_entry(
     await async_migrate_entities(hass, config_entry, entities)
 
     async_add_entities_callback(entities, update_before_add=True)
+    known_unique_ids = {entity.unique_id for entity in entities}
 
-    @callback
-    async def async_update_controller(coordinator):
+    async def async_update_controller():
         """Update entities when data changes."""
         # Although named async_create_sensors, this helper function is generic
         # and can create any PortainerEntity, including our buttons.
-        platform = ep.async_get_current_platform()
-        existing_unique_ids = {e.unique_id for e in platform.entities.values()}
 
         new_entities = []
         entities = await async_create_sensors(coordinator, BUTTON_TYPES, dispatcher)
         for entity in entities:
-            if entity.unique_id not in existing_unique_ids:
+            if entity.unique_id not in known_unique_ids:
+                known_unique_ids.add(entity.unique_id)
                 new_entities.append(entity)
 
         if new_entities:
+            await async_migrate_entities(hass, config_entry, new_entities)
             async_add_entities_callback(new_entities, update_before_add=True)
 
-    config_entry.async_on_unload(
-        async_dispatcher_connect(
-            hass, f"{config_entry.entry_id}_update", async_update_controller
-        )
-    )
+    @callback
+    def schedule_discovery():
+        if coordinator.last_update_success:
+            hass.async_create_task(async_update_controller())
+
+    config_entry.async_on_unload(coordinator.async_add_listener(schedule_discovery))
 
 
 class ContainerActionButton(PortainerEntity, ButtonEntity):
@@ -214,10 +213,9 @@ class ContainerActionButton(PortainerEntity, ButtonEntity):
         action = self.entity_description.action
 
         if not endpoint_id or not container_id or not action:
-            _LOGGER.error(
+            raise HomeAssistantError(
                 "Could not perform action on container, missing endpoint, container id, or action"
             )
-            return
 
         _LOGGER.debug(
             "Performing '%s' action on container '%s' (ID: %s) on endpoint %s",
@@ -232,8 +230,9 @@ class ContainerActionButton(PortainerEntity, ButtonEntity):
         )
         api_params = {}
 
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
+        await async_execute_action(
+            self.hass,
+            self.coordinator.api,
             service_path,
             "POST",
             api_params,
@@ -316,10 +315,9 @@ class StackActionButton(PortainerEntity, ButtonEntity):
         action = self.entity_description.action
 
         if not endpoint_id or not stack_id or not action:
-            _LOGGER.error(
+            raise HomeAssistantError(
                 "Could not perform action on stack, missing endpoint, stack id, or action"
             )
-            return
 
         # The service path for stack actions is different from containers
         # Based on _handle_perform_stack_action in __init__.py
@@ -327,19 +325,9 @@ class StackActionButton(PortainerEntity, ButtonEntity):
         service_path = f"stacks/{stack_id}/{action}?endpointId={endpoint_id}"
         method = "POST"  # Start/Stop are POST requests
 
-        try:
-            await self.hass.async_add_executor_job(
-                self.coordinator.api.query,
-                service_path,
-                method,
-                {},
-            )
-            _LOGGER.debug("Successfully performed '%s' on stack '%s'", action, stack_id)
-        except Exception as e:
-            _LOGGER.error(
-                "Failed to perform '%s' on stack '%s': %s", action, stack_id, e
-            )
-
+        await async_execute_action(
+            self.hass, self.coordinator.api, service_path, method, {}
+        )
         await self.coordinator.async_request_refresh()
 
     @property

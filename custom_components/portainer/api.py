@@ -164,9 +164,12 @@ class PortainerAPI(object):
     def get_endpoints(self) -> list:
         """Get all endpoints from Portainer."""
         endpoints = self.query("endpoints")
-        if not endpoints:
-            _LOGGER.warning("No endpoints found or unable to fetch endpoints.")
-            return []
+        if not isinstance(endpoints, list) or any(
+            not isinstance(endpoint, dict) for endpoint in endpoints
+        ):
+            raise ValueError(
+                f"Unable to fetch endpoints: {self.error or 'invalid response'}"
+            )
         # Normalize keys to 'id' and 'name' for config flow
         endpoint_list = []
         for endpoint in endpoints:
@@ -193,9 +196,12 @@ class PortainerAPI(object):
     def get_containers(self, endpoint_id: str) -> list:
         """Get all containers for a specific endpoint."""
         containers = self.query(f"endpoints/{endpoint_id}/docker/containers/json?all=1")
-        if not containers:
-            _LOGGER.warning(f"No containers found for endpoint {endpoint_id}.")
-            return []
+        if not isinstance(containers, list) or any(
+            not isinstance(container, dict) for container in containers
+        ):
+            raise ValueError(
+                f"Unable to fetch containers: {self.error or 'invalid response'}"
+            )
         # Normalize keys to 'id', 'name', and add 'status' for config flow
         container_list = []
         for container in containers:

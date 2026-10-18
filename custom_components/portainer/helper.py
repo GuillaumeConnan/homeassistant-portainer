@@ -7,6 +7,14 @@ from pytz import utc
 DEFAULT_TIME_ZONE = None
 
 
+def normalize_container_selection(identifier: str, entry_id: str, name: str) -> str:
+    """Use endpoint/name selections, accepting both historical prefixes."""
+    for prefix in (entry_id, name):
+        if prefix and identifier.startswith(f"{prefix}_"):
+            return identifier[len(prefix) + 1 :]
+    return identifier
+
+
 # ---------------------------
 #   format_attribute
 # ---------------------------

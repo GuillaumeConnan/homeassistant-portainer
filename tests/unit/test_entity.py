@@ -356,16 +356,16 @@ class TestPortainerEntity:
             mock_logger.debug.assert_not_called()
 
     def test_entity_handle_coordinator_update_keyerror(self, entity, mock_coordinator):
-        """Test coordinator update handling with KeyError."""
-        # Remove the container from data to cause KeyError
+        """A disappearing resource still publishes its unavailable state."""
+        entity.async_write_ha_state = Mock()
+        original_data = entity._data
         del mock_coordinator.data["containers"]["1_web-server"]
 
-        with patch("custom_components.portainer.entity._LOGGER") as mock_logger:
-            entity._handle_coordinator_update()
+        entity._handle_coordinator_update()
 
-            mock_logger.debug.assert_called_once_with(
-                "Error while updating entity %s", entity.unique_id
-            )
+        entity.async_write_ha_state.assert_called_once()
+        assert entity.available is False
+        assert entity._data is original_data
 
     def test_entity_get_config_entry_id(self, entity, mock_coordinator):
         """Test get config entry id."""

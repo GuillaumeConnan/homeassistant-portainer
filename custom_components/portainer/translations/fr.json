@@ -1,6 +1,26 @@
 {
     "config": {
         "step": {
+            "reauth_confirm": {
+                "title": "Authentifier Portainer à nouveau",
+                "description": "Saisissez un jeton valide et les informations de connexion. Vos sélections seront conservées.",
+                "data": {
+                    "host": "Hôte",
+                    "api_key": "Jeton d’accès",
+                    "ssl": "Utiliser SSL",
+                    "verify_ssl": "Vérifier le certificat SSL"
+                }
+            },
+            "reconfigure": {
+                "title": "Modifier la connexion Portainer",
+                "description": "Modifiez l’hôte, le jeton ou les paramètres TLS sans changer vos sélections.",
+                "data": {
+                    "host": "Hôte",
+                    "api_key": "Jeton d’accès",
+                    "ssl": "Utiliser SSL",
+                    "verify_ssl": "Vérifier le certificat SSL"
+                }
+            },
             "user": {
                 "title": "Configurer l’intégration Portainer",
                 "description": "Saisissez les informations de connexion à votre instance Portainer.",
@@ -24,7 +44,8 @@
                 "description": "Choisissez les conteneurs et les stacks à importer dans Home Assistant.",
                 "data": {
                     "containers": "Conteneurs",
-                    "stacks": "Stacks"
+                    "stacks": "Stacks",
+                    "feature_use_action_buttons": "Créer des boutons d’action"
                 }
             },
             "features": {
@@ -38,6 +59,7 @@
             }
         },
         "error": {
+            "invalid_auth": "Le jeton d’accès a été refusé. Vérifiez sa validité et ses autorisations.",
             "name_exists": "Une intégration portant ce nom existe déjà.",
             "cannot_connect": "Connexion impossible. Vérifiez l’hôte et le jeton d’accès.",
             "endpoint_fetch_failed": "Impossible de récupérer les points de terminaison. Vérifiez la connexion et réessayez.",
@@ -47,6 +69,8 @@
         },
         "abort": {
             "already_configured": "Cette instance Portainer est déjà configurée.",
+            "reauth_successful": "L’authentification a été mise à jour.",
+            "reconfigure_successful": "Les paramètres de connexion ont été mis à jour.",
             "item_fetch_failed": "Impossible de récupérer les conteneurs ou les stacks. Vérifiez la connexion et réessayez."
         }
     },
@@ -64,7 +88,8 @@
                 "description": "Choisissez les conteneurs et les stacks à surveiller dans Home Assistant.",
                 "data": {
                     "containers": "Conteneurs",
-                    "stacks": "Stacks"
+                    "stacks": "Stacks",
+                    "feature_use_action_buttons": "Créer des boutons d’action"
                 }
             },
             "features": {
@@ -78,7 +103,11 @@
             }
         },
         "error": {
+            "no_endpoints_selected": "Veuillez sélectionner au moins un point de terminaison.",
             "endpoint_fetch_failed": "Impossible de récupérer les points de terminaison. Vérifiez la connexion et réessayez."
+        },
+        "abort": {
+            "item_fetch_failed": "Impossible de récupérer les conteneurs ou les stacks. Vérifiez la connexion et réessayez."
         }
     },
     "services": {

@@ -1,6 +1,26 @@
 {
     "config": {
         "step": {
+            "reauth_confirm": {
+                "title": "Portainer erneut authentifizieren",
+                "description": "Geben Sie einen gültigen Zugriffstoken und die Verbindungsdaten ein. Ihre Auswahl bleibt erhalten.",
+                "data": {
+                    "host": "Host",
+                    "api_key": "Zugriffstoken",
+                    "ssl": "SSL verwenden",
+                    "verify_ssl": "SSL-Zertifikat überprüfen"
+                }
+            },
+            "reconfigure": {
+                "title": "Portainer-Verbindung ändern",
+                "description": "Ändern Sie Host, Zugriffstoken oder TLS-Einstellungen, ohne Ihre Auswahl zu ändern.",
+                "data": {
+                    "host": "Host",
+                    "api_key": "Zugriffstoken",
+                    "ssl": "SSL verwenden",
+                    "verify_ssl": "SSL-Zertifikat überprüfen"
+                }
+            },
             "user": {
                 "title": "Portainer-Integration einrichten",
                 "description": "Geben Sie die Verbindungsdetails für Ihre Portainer-Instanz ein.",
@@ -24,7 +44,8 @@
                 "description": "Wählen Sie die Container und Stacks aus, die Sie in Home Assistant importieren möchten.",
                 "data": {
                     "containers": "Container",
-                    "stacks": "Stacks"
+                    "stacks": "Stacks",
+                    "feature_use_action_buttons": "Aktionsschaltflächen erstellen"
                 }
             },
             "features": {
@@ -38,6 +59,7 @@
             }
         },
         "error": {
+            "invalid_auth": "Der Zugriffstoken wurde abgelehnt. Prüfen Sie den Token und seine Berechtigungen.",
             "name_exists": "Eine Integration mit diesem Namen existiert bereits.",
             "cannot_connect": "Verbindung fehlgeschlagen. Überprüfen Sie Host und Zugriffstoken.",
             "endpoint_fetch_failed": "Endpunkte konnten nicht abgerufen werden. Überprüfen Sie die Verbindung und versuchen Sie es erneut.",
@@ -46,7 +68,10 @@
             "item_fetch_failed": "Container/Stacks konnten nicht abgerufen werden. Überprüfen Sie die Verbindung und versuchen Sie es erneut."
         },
         "abort": {
-            "already_configured": "Diese Portainer-Instanz ist bereits konfiguriert."
+            "already_configured": "Diese Portainer-Instanz ist bereits konfiguriert.",
+            "item_fetch_failed": "Container oder Stacks konnten nicht abgerufen werden.",
+            "reauth_successful": "Authentifizierung erfolgreich aktualisiert.",
+            "reconfigure_successful": "Verbindungseinstellungen erfolgreich aktualisiert."
         }
     },
     "options": {
@@ -63,7 +88,8 @@
                 "description": "Wählen Sie die Container und Stacks aus, die Sie in Home Assistant überwachen möchten.",
                 "data": {
                     "containers": "Container",
-                    "stacks": "Stacks"
+                    "stacks": "Stacks",
+                    "feature_use_action_buttons": "Aktionsschaltflächen erstellen"
                 }
             },
             "features": {
@@ -77,7 +103,11 @@
             }
         },
         "error": {
+            "no_endpoints_selected": "Bitte wählen Sie mindestens einen Endpunkt aus.",
             "endpoint_fetch_failed": "Endpunkte konnten nicht abgerufen werden. Überprüfen Sie die Verbindung und versuchen Sie es erneut."
+        },
+        "abort": {
+            "item_fetch_failed": "Container oder Stacks konnten nicht abgerufen werden."
         }
     },
     "services": {
