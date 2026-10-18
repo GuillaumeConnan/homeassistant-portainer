@@ -2,10 +2,9 @@
 
 import json
 import requests
-import urllib3
 from logging import getLogger
 from threading import Lock
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 
 from homeassistant.core import HomeAssistant
@@ -44,8 +43,6 @@ class PortainerAPI(object):
                 "This may pose a security risk. Ensure you trust this host.",
                 self._host,
             )
-            # Suppress the InsecureRequestWarning from urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         self.lock = Lock()
         self._connected = False
         self._error = ""
@@ -78,26 +75,18 @@ class PortainerAPI(object):
         method: str = "GET",
         params: Optional[dict[str, Any]] = None,
         timeout: int = 10,
-    ) -> Optional[List[dict]]:
+    ) -> list[dict[str, Any]] | dict[str, Any] | None:
         """Retrieve data from Portainer."""
         try:
             self.lock.acquire()
         except Exception as e:
             _LOGGER.error("Failed to acquire lock for Portainer API query: %s", e)
             self._error = "lock_error"
+            self._connected = False
             return None
 
-        error = False
         response = None
         try:
-            # _LOGGER.debug(
-            #     "Portainer %s query: %s, %s, %s",
-            #     self._host,
-            #     service,
-            #     method,
-            #     params,
-            # )
-
             url = f"{self._url}{service}"
             if method == "GET":
                 _LOGGER.debug("Portainer API call (GET): %s, params=%s", url, params)
@@ -110,67 +99,38 @@ class PortainerAPI(object):
                     f"{self._url}{service}", json=params, timeout=timeout
                 )
             elif method == "DELETE":
-                response = self._session.delete(
-                    f"{self._url}{service}", timeout=timeout
-                )
+                response = self._session.delete(url, params=params, timeout=timeout)
             else:
                 _LOGGER.error("Invalid HTTP method: %s", method)
                 self._error = "invalid_method"
+                self._connected = False
                 return None
 
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-            if response.content:  # Check if there's content before trying to parse JSON
-                try:
-                    data = response.json()
-                    # _LOGGER.debug("Portainer %s query response: %s", self._host, data)
-                except json.JSONDecodeError:
-                    _LOGGER.warning("Invalid JSON response from Portainer API")
-                    self._error = "invalid_json"
-                    self.lock.release()
-                    return None
-            else:
-                data = None  # Or any other appropriate value indicating no data
-        except Exception as e:
-            error = True
-            _LOGGER.debug("Exception in API query: %s", e)
-
-        if error:
-            log_message = f'Portainer {self._host} unable to fetch data "{service}"'
-            if response and hasattr(response, "status_code"):
-                log_message += f" ({response.status_code})"
-            else:
-                log_message += " (connection error)"
-
-            # Add more context if available (e.g., for container recreate)
-            if "containers" in service and "recreate" in service:
-                parts = service.split("/")
-                if len(parts) >= 4:
-                    endpoint_id = parts[1]
-                    container_id = parts[3]
-                    log_message += (
-                        f" for container {container_id} on endpoint {endpoint_id}"
-                    )
-
-            _LOGGER.warning(log_message)
-
-            if response and hasattr(response, "status_code"):
-                # Set connected to False for any error response (including 500)
-                # but not for the special "reporting/get_data" service
-                if service != "reporting/get_data":
-                    self._connected = False
-            self._error = (
-                response.status_code
-                if response and hasattr(response, "status_code")
-                else "no_response"
-            )
-            self.lock.release()
+            data = response.json() if response.content else None
+            self._connected = True
+            self._error = ""
+            return data
+        except json.JSONDecodeError:
+            _LOGGER.warning("Invalid JSON response from Portainer API for %s", service)
+            self._connected = False
+            self._error = "invalid_json"
             return None
-
-        self._connected = True
-        self._error = ""
-        self.lock.release()
-
-        return data
+        except requests.RequestException as error:
+            self._connected = False
+            self._error = (
+                response.status_code if response is not None else "no_response"
+            )
+            _LOGGER.warning(
+                'Portainer %s unable to fetch data "%s" (%s): %s',
+                self._host,
+                service,
+                self._error,
+                error,
+            )
+            return None
+        finally:
+            self.lock.release()
 
     @property
     def error(self):
@@ -263,25 +223,32 @@ class PortainerAPI(object):
     # ---------------------------
     #   get_stacks
     # ---------------------------
-    def get_stacks(self, endpoint_id: str) -> list:
-        """Get all stacks for a specific endpoint."""
+    def get_stacks(self, endpoint_id: str | None = None) -> list:
+        """Get normalized stacks, optionally filtered to one endpoint."""
         all_stacks = self.query("stacks")
-        if not all_stacks:
-            _LOGGER.warning(f"No stacks found for endpoint {endpoint_id}.")
-            return []
-        stacks = [
-            stack for stack in all_stacks if stack.get("EndpointId") == int(endpoint_id)
-        ]
-        if not stacks:
-            _LOGGER.warning(f"No stacks found for endpoint {endpoint_id}.")
-            return []
+        if not isinstance(all_stacks, list) or any(
+            not isinstance(stack, dict) for stack in all_stacks
+        ):
+            raise ValueError(
+                f"Unable to fetch stacks: {self.error or 'invalid response'}"
+            )
         # Normalize keys to 'id' and 'name' for config flow
         stack_list = []
-        for stack in stacks:
+        for stack in all_stacks:
+            if endpoint_id is not None and str(stack.get("EndpointId")) != str(
+                endpoint_id
+            ):
+                continue
             stack_id = stack.get("Id") or stack.get("id")
             stack_name = stack.get("Name") or stack.get("name") or f"Stack {stack_id}"
             if stack_id:
-                stack_list.append({"id": str(stack_id), "name": stack_name})
+                stack_list.append(
+                    {
+                        "id": str(stack_id),
+                        "name": stack_name,
+                        "endpoint_id": str(stack.get("EndpointId")),
+                    }
+                )
         return stack_list
 
     # ---------------------------

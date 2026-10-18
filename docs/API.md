@@ -167,16 +167,19 @@ Restart policies are extracted from container host configuration:
 
 The integration handles errors gracefully:
 
-1. **Individual Container Failures**: Skip problematic containers, continue with others
-2. **Endpoint Failures**: Mark endpoint as unavailable, continue with other endpoints
-3. **API Timeouts**: Use cached data, retry on next update cycle
+1. **API Failures**: Failed inventory or inspection requests fail the entire refresh. The last successful snapshot is preserved, entities become unavailable, and missing-resource repair counters are not advanced.
+2. **Offline Endpoints**: An endpoint explicitly reported as down retains its previously discovered containers and stacks as unavailable. This is not treated as resource deletion.
+3. **Successful Empty Responses**: Empty inventory lists are valid and can identify genuinely removed resources. Repairs still require three successful scans reporting a missing resource.
+4. **Recovery**: The next successful refresh publishes a complete snapshot and restores availability.
+
+Container removal uses `DELETE /api/endpoints/{endpointId}/docker/containers/{containerId}` with Docker query parameters `force` and `v` (anonymous volumes), both defaulting to `false`. Local devices and entities are cleaned up only after a successful response, including `204 No Content`. Failures raise a Home Assistant service error.
 
 ## Update Cycle
 
 ### Polling Interval
 - **Default**: 30 seconds
 - **Configurable**: Via `SCAN_INTERVAL` constant
-- **Concurrent**: Multiple API calls run in parallel
+- **Serialized**: API calls run in executor jobs through a shared, locked HTTP session
 
 ### Update Process
 1. **Fetch Endpoints**: Get all available endpoints
@@ -187,10 +190,12 @@ The integration handles errors gracefully:
 6. **Update Devices**: Refresh Home Assistant device states
 7. **Check Repairs**: Update repair issue status
 
+The setup and options selection forms fetch `/api/stacks` only once per form and filter its response by the selected active endpoint IDs. The coordinator also fetches stacks once per refresh and restricts them to selected endpoints.
+
 ## Performance Considerations
 
 ### API Rate Limiting
-- **Parallel Requests**: Multiple API calls run concurrently
+- **Serialized Requests**: The session lock serializes API calls
 - **Connection Pooling**: Reuse HTTP connections when possible
 - **Timeout Management**: 10-second timeout per request
 
@@ -210,9 +215,10 @@ The integration handles errors gracefully:
 - **Token Storage**: Stored securely in Home Assistant configuration
 - **Token Scope**: Use minimal required permissions
 - **Token Rotation**: Regular token updates recommended
+- **Diagnostics**: API keys and passwords are redacted recursively before export
 
 ### SSL/TLS Security
-- **Certificate Validation**: Optional but recommended for production
+- **Certificate Validation**: Enabled by default for new configurations; existing saved settings are preserved. Untrusted self-signed certificates require an explicit opt-out.
 - **SSL Version**: Modern TLS versions only
 - **Cipher Suites**: Secure cipher suites only
 

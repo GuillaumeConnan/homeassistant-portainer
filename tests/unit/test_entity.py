@@ -61,6 +61,8 @@ class TestPortainerEntity:
             },
         }
         coordinator.connected.return_value = True
+        coordinator.last_update_success = True
+        coordinator.data["endpoints"]["1"]["Status"] = 1
         coordinator.config_entry_id = "test_entry_id"
         coordinator.selected_containers = {"test_entry_id_1_web-server"}
         coordinator.selected_stacks = {"1"}
@@ -176,6 +178,21 @@ class TestPortainerEntity:
     def test_entity_available_disconnected(self, entity, mock_coordinator):
         """Test entity availability when coordinator is disconnected."""
         mock_coordinator.connected.return_value = False
+        assert entity.available is False
+
+    def test_entity_unavailable_after_failed_refresh(self, entity, mock_coordinator):
+        """Cached state must not appear current after a failed refresh."""
+        mock_coordinator.last_update_success = False
+        assert entity.available is False
+
+    def test_entity_unavailable_when_missing(self, entity, mock_coordinator):
+        """A successful empty inventory makes removed resources unavailable."""
+        mock_coordinator.data["containers"] = {}
+        assert entity.available is False
+
+    def test_entity_unavailable_when_endpoint_down(self, entity, mock_coordinator):
+        """Cached children of an offline endpoint must not remain available."""
+        mock_coordinator.data["endpoints"]["1"]["Status"] = 2
         assert entity.available is False
 
     def test_entity_device_info_system_group(self, mock_coordinator):

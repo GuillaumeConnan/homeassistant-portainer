@@ -18,9 +18,10 @@ DEFAULT_HOST = "192.168.60.199:9443"
 
 DEFAULT_DEVICE_NAME = "Portainer"
 DEFAULT_SSL = True
-DEFAULT_SSL_VERIFY = False
+DEFAULT_SSL_VERIFY = True
 
 TO_REDACT = {
+    "api_key",
     "password",
 }
 

@@ -169,7 +169,19 @@ class PortainerEntity(CoordinatorEntity[PortainerCoordinator], Entity):
     @property
     def available(self) -> bool:
         """Return if controller is available."""
-        return self.coordinator.connected()
+        if not self.coordinator.last_update_success or not self.coordinator.connected():
+            return False
+        data = self.coordinator.data.get(self.description.data_path, {})
+        if self._uid is None:
+            return True
+        if self._uid not in data:
+            return False
+        if self.description.data_path in ("containers", "stacks"):
+            endpoint_id = data[self._uid].get("EndpointId")
+            endpoints = self.coordinator.data.get("endpoints", {})
+            endpoint = endpoints.get(str(endpoint_id), endpoints.get(endpoint_id, {}))
+            return endpoint.get("Status") == 1
+        return True
 
     @property
     def device_info(self) -> DeviceInfo:

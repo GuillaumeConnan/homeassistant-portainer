@@ -1,7 +1,7 @@
 ---
 perform_container_action:
   name: Perform Container Action
-  description: Performs a specified action (start, stop, restart, kill) on one or more containers.
+  description: Performs a specified action (start, stop, restart, kill, remove) on one or more containers.
   fields:
     action:
       name: Action
@@ -14,6 +14,7 @@ perform_container_action:
             - stop
             - restart
             - kill
+            - remove
     container_devices:
       name: Container Devices
       description: A list of Docker container devices to perform the action on.
@@ -24,6 +25,19 @@ perform_container_action:
           filter:
             integration: portainer
             model: Container
+
+    force:
+      name: Force Removal
+      description: Force removal of running containers. Only used with the remove action.
+      default: false
+      selector:
+        boolean: {}
+    remove_volumes:
+      name: Remove Anonymous Volumes
+      description: Remove anonymous volumes associated with the containers. Named volumes are not removed. Only used with the remove action.
+      default: false
+      selector:
+        boolean: {}
 
 perform_stack_action:
   name: Perform Stack Action
