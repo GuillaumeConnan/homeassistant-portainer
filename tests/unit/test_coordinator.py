@@ -4,6 +4,7 @@ import asyncio
 import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch, call
 from datetime import timedelta
+from itertools import permutations
 
 from custom_components.portainer.coordinator import PortainerCoordinator
 from custom_components.portainer.const import (
@@ -647,6 +648,92 @@ class TestPortainerCoordinator:
         ports_str = container["PublishedPorts"]
         assert "8080->80/tcp" in ports_str
         assert "5432/tcp" in ports_str
+
+    @pytest.fixture
+    def published_ports_state(self, mock_hass, mock_config_entry, mock_api):
+        """Read the published ports state through normal container processing."""
+        with patch(
+            "custom_components.portainer.coordinator.DataUpdateCoordinator.__init__",
+            return_value=None,
+        ), patch(
+            "custom_components.portainer.coordinator.PortainerAPI",
+            return_value=mock_api,
+        ):
+            coordinator = PortainerCoordinator(mock_hass, mock_config_entry)
+        coordinator.raw_data["endpoints"] = {"1": {"Name": "local", "Status": 1}}
+
+        def read_state(ports):
+            mock_api.query.side_effect = [
+                [
+                    {
+                        "Id": "abc123def456",
+                        "Names": ["/web-server"],
+                        "State": "running",
+                        "Ports": ports,
+                    }
+                ],
+                get_container_inspect_response("abc123def456"),
+            ]
+            coordinator.get_containers()
+            return coordinator.raw_data["containers"]["test_entry_id_1_web-server"][
+                "PublishedPorts"
+            ]
+
+        return read_state
+
+    def test_published_ports_order_is_stable(self, published_ports_state):
+        """Docker port permutations must produce exactly the same sensor state."""
+        ports = [
+            {"IP": "0.0.0.0", "PublicPort": 8782, "PrivatePort": 8782, "Type": "tcp"},
+            {"IP": "::", "PublicPort": 8782, "PrivatePort": 8782, "Type": "tcp"},
+            {"IP": "0.0.0.0", "PublicPort": 8780, "PrivatePort": 8780, "Type": "tcp"},
+            {"IP": "::", "PublicPort": 8780, "PrivatePort": 8780, "Type": "tcp"},
+            {"PrivatePort": 5432, "Type": "udp"},
+            {"IP": "0.0.0.0", "PublicPort": 8782, "PrivatePort": 8782, "Type": "tcp"},
+        ]
+        expected = (
+            "5432/udp, 8780->8780/tcp, 8782->8782/tcp, 8782->8782/tcp, "
+            ":::8780->8780/tcp, :::8782->8782/tcp"
+        )
+
+        for permutation in permutations(ports):
+            assert published_ports_state(list(permutation)) == expected
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"IP": "127.0.0.1"},
+            {"IP": "::"},
+            {"PublicPort": 8081},
+            {"PrivatePort": 81},
+            {"Type": "udp"},
+        ],
+    )
+    def test_published_ports_mapping_changes(self, published_ports_state, change):
+        """Real mapping changes must still change the sensor state."""
+        port = {"IP": "0.0.0.0", "PublicPort": 8080, "PrivatePort": 80, "Type": "tcp"}
+
+        before = published_ports_state([port])
+        after = published_ports_state([{**port, **change}])
+
+        assert before != after
+
+    def test_published_ports_additions_and_removals(self, published_ports_state):
+        """Adding or removing mappings, duplicates and internal ports stays visible."""
+        port = {"IP": "0.0.0.0", "PublicPort": 8080, "PrivatePort": 80, "Type": "tcp"}
+        internal_port = {"PrivatePort": 5432, "Type": "tcp"}
+
+        assert published_ports_state([]) == "none"
+        assert published_ports_state([port]) == "8080->80/tcp"
+        assert published_ports_state([port, port]) == "8080->80/tcp, 8080->80/tcp"
+        assert published_ports_state([port, internal_port]) == "5432/tcp, 8080->80/tcp"
+        assert published_ports_state([internal_port]) == "5432/tcp"
+        assert published_ports_state([]) == "none"
+
+    @pytest.mark.parametrize("ports", [[], None, "unknown", {}])
+    def test_published_ports_without_mappings(self, published_ports_state, ports):
+        """Empty or absent port lists retain the existing none state."""
+        assert published_ports_state(ports) == "none"
 
     def test_get_containers_mount_processing(self, coordinator, mock_api):
         """Test container mount processing."""
