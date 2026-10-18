@@ -297,8 +297,8 @@ class PortainerEntity(CoordinatorEntity[PortainerCoordinator], Entity):
         if endpoint_id is None or config_entry_id is None:
             return None
 
-        return dr.async_get_device_id_by_identifier(
-            self.hass,
-            (DOMAIN, f"{endpoint_id}_{config_entry_id}"),
-            config_entry_id=config_entry_id,
+        device_registry = dr.async_get(self.hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, f"{endpoint_id}_{config_entry_id}")}
         )
+        return device.id if device else None

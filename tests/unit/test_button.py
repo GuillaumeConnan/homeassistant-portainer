@@ -109,10 +109,12 @@ class TestPortainerButtons:
         button.hass = mock_hass
         # button._data is already set by PortainerEntity.__init__ because we populated coordinator.data
 
+        device_registry = Mock()
+        device_registry.async_get_device.return_value = Mock(id="endpoint-device-id")
         with patch(
-            "custom_components.portainer.entity.dr.async_get_device_id_by_identifier",
-            return_value="endpoint-device-id",
-        ) as get_device_id:
+            "custom_components.portainer.entity.dr.async_get",
+            return_value=device_registry,
+        ) as get_device_registry:
             device_info = button.device_info
 
         assert device_info["name"] == "web-server"
@@ -121,10 +123,9 @@ class TestPortainerButtons:
         assert device_info["sw_version"] == "24.0.6"
         assert (DOMAIN, "test_entry_id_1_web-server") in device_info["identifiers"]
         assert device_info["via_device_id"] == "endpoint-device-id"
-        get_device_id.assert_called_once_with(
-            mock_hass,
-            (DOMAIN, "1_test_entry_id"),
-            config_entry_id="test_entry_id",
+        get_device_registry.assert_called_once_with(mock_hass)
+        device_registry.async_get_device.assert_called_once_with(
+            identifiers={(DOMAIN, "1_test_entry_id")}
         )
 
     def test_container_button_availability_running_state(
@@ -303,10 +304,12 @@ class TestPortainerButtons:
         button = StackActionButton(mock_coordinator, description, uid="1")
         button.hass = mock_hass
 
+        device_registry = Mock()
+        device_registry.async_get_device.return_value = Mock(id="endpoint-device-id")
         with patch(
-            "custom_components.portainer.entity.dr.async_get_device_id_by_identifier",
-            return_value="endpoint-device-id",
-        ) as get_device_id:
+            "custom_components.portainer.entity.dr.async_get",
+            return_value=device_registry,
+        ) as get_device_registry:
             device_info = button.device_info
 
         assert device_info["name"] == "web-stack"
@@ -315,10 +318,9 @@ class TestPortainerButtons:
         assert device_info["sw_version"] == "24.0.6"
         assert (DOMAIN, "test_entry_id_stack_1") in device_info["identifiers"]
         assert device_info["via_device_id"] == "endpoint-device-id"
-        get_device_id.assert_called_once_with(
-            mock_hass,
-            (DOMAIN, "1_test_entry_id"),
-            config_entry_id="test_entry_id",
+        get_device_registry.assert_called_once_with(mock_hass)
+        device_registry.async_get_device.assert_called_once_with(
+            identifiers={(DOMAIN, "1_test_entry_id")}
         )
 
     def test_stack_button_availability_active(
