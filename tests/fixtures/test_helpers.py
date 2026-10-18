@@ -15,6 +15,8 @@ from custom_components.portainer.const import DOMAIN
 class TestHelper:
     """Helper class for Portainer integration testing."""
 
+    __test__ = False
+
     def __init__(self, hass: HomeAssistant):
         """Initialize test helper."""
         self.hass = hass

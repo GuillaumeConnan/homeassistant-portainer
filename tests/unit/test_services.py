@@ -23,6 +23,7 @@ class TestPortainerServices:
     def mock_hass(self):
         """Create mock Home Assistant instance."""
         hass = AsyncMock()
+        hass.bus = MagicMock()
         hass.services = MagicMock()
         hass.services.async_register = MagicMock()
         hass.services.async_remove = MagicMock()

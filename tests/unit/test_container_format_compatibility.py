@@ -1,119 +1,100 @@
-"""Test container identifier format compatibility between config flow and coordinator."""
+"""Test compatibility with both supported container selection key formats."""
+
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import pytest
-from unittest.mock import Mock, patch
 
 from custom_components.portainer.coordinator import PortainerCoordinator
 from custom_components.portainer.entity import async_create_sensors
 
 
-class TestContainerFormatCompatibility:
-    """Test compatibility between different container identifier formats."""
+@pytest.fixture
+def coordinator():
+    """Create a coordinator with containers selected by both identifier formats."""
+    hass = Mock()
+    config_entry = Mock()
+    config_entry.entry_id = "entry-id"
+    config_entry.data = {
+        "name": "Test Portainer",
+        "host": "localhost:9000",
+        "api_key": "test-key",
+        "ssl": False,
+        "verify_ssl": True,
+    }
+    config_entry.options = {
+        "containers": [
+            "Test Portainer_2_ots-app-1",
+            "entry-id_2_ots-redis-1",
+        ]
+    }
 
-    @pytest.fixture
-    def mock_hass(self):
-        """Create mock Home Assistant instance."""
-        hass = Mock()
-        hass.async_add_executor_job = Mock(return_value=[])
-        return hass
+    with patch("custom_components.portainer.coordinator.PortainerAPI"), patch(
+        "homeassistant.helpers.frame.report_usage"
+    ):
+        return PortainerCoordinator(hass, config_entry)
 
-    @pytest.fixture
-    def mock_config_entry(self):
-        """Create mock config entry."""
-        config_entry = Mock()
-        config_entry.entry_id = "01K7HFNR3527W6HYGM6SFGDTG1"
-        config_entry.data = {
-            "name": "Test Portainer",
-            "host": "localhost:9000",
-            "api_key": "test_api_key",
-            "ssl": False,
-            "verify_ssl": True,
+
+def test_coordinator_handles_both_container_selection_formats(coordinator):
+    """The coordinator keeps selected containers in either supported key format."""
+    api_response = [
+        {"Id": "app", "Names": ["/ots-app-1"], "State": "running"},
+        {"Id": "redis", "Names": ["/ots-redis-1"], "State": "running"},
+    ]
+    coordinator.api.query.side_effect = lambda url, *args, **kwargs: (
+        api_response
+        if "containers/json" in url
+        else {
+            "Id": url.split("/")[-2],
+            "State": {"Status": "running"},
+            "HostConfig": {"NetworkMode": "bridge"},
+            "NetworkSettings": {"Networks": {}},
+            "Mounts": [],
         }
-        config_entry.options = {
-            "containers": [
-                "Portainer_2_ots-app-1",  # Config name format
-                "01K7HFNR3527W6HYGM6SFGDTG1_2_ots-redis-1",  # Config entry ID format
-            ]
-        }
-        return config_entry
+    )
+    coordinator.raw_data = {
+        "endpoints": {2: {"Status": 1, "Name": "test-endpoint"}},
+        "containers": {},
+        "stacks": {},
+    }
 
-    @pytest.fixture
-    def coordinator(self, mock_hass, mock_config_entry):
-        """Create coordinator with mixed format selections."""
-        with patch("custom_components.portainer.coordinator.PortainerAPI"):
-            coordinator = PortainerCoordinator(mock_hass, mock_config_entry)
-            return coordinator
+    coordinator.get_containers()
 
-    def test_coordinator_handles_mixed_formats(self, coordinator):
-        """Test that coordinator handles both identifier formats."""
-        # Setup test data
-        coordinator.raw_data = {
-            "endpoints": {"2": {"Status": 1, "Name": "test-endpoint"}},
-            "containers": {
-                "2": {
-                    "container1": {
-                        "Id": "abc123",
-                        "Names": ["/ots-app-1"],
-                        "State": "running",
-                        "EndpointId": "2",
-                    },
-                    "container2": {
-                        "Id": "def456",
-                        "Names": ["/ots-redis-1"],
-                        "State": "running",
-                        "EndpointId": "2",
-                    },
-                }
+    assert set(coordinator.raw_data["containers"]) == {
+        "entry-id_2_ots-app-1",
+        "entry-id_2_ots-redis-1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_entity_creation_keeps_selected_containers(coordinator):
+    """Selected container sensors are built for both identifier formats."""
+    coordinator.data = {
+        "containers": {
+            "entry-id_2_ots-app-1": {
+                "Name": "ots-app-1",
+                "EndpointId": "2",
+                "State": "running",
+            },
+            "entry-id_2_ots-redis-1": {
+                "Name": "ots-redis-1",
+                "EndpointId": "2",
+                "State": "running",
             },
         }
+    }
+    description = SimpleNamespace(
+        data_path="containers",
+        data_attribute="State",
+        data_name="Name",
+        data_reference=True,
+        func="ContainerSensor",
+    )
+    create_entity = Mock()
 
-        # Process containers
-        coordinator.get_containers()
+    entities = await async_create_sensors(
+        coordinator, [description], {"ContainerSensor": create_entity}
+    )
 
-        # Should process containers that match either format
-        flat_containers = coordinator.raw_data["containers"]
-        assert len(flat_containers) >= 2  # Both containers should be processed
-
-    def test_entity_creation_handles_mixed_formats(self, coordinator):
-        """Test that entity creation handles both identifier formats."""
-        # Setup coordinator data
-        coordinator.data = {
-            "containers": {
-                "01K7HFNR3527W6HYGM6SFGDTG1_2_ots-app-1": {
-                    "Name": "ots-app-1",
-                    "EndpointId": "2",
-                    "State": "running",
-                },
-                "01K7HFNR3527W6HYGM6SFGDTG1_2_ots-redis-1": {
-                    "Name": "ots-redis-1",
-                    "EndpointId": "2",
-                    "State": "running",
-                },
-            }
-        }
-
-        # Create sensor descriptions
-        descriptions = [
-            Mock(
-                data_path="containers",
-                data_attribute="State",
-                data_name="Name",
-                data_reference=True,
-                func="ContainerSensor",
-            )
-        ]
-        dispatcher = {"ContainerSensor": Mock()}
-
-        # Create entities
-        entities = coordinator.hass.asyncio_run(
-            async_create_sensors(coordinator, descriptions, dispatcher)
-        )
-
-        # Should create entities for containers matching either format
-        assert len(entities) >= 2
-
-    def test_config_flow_format_consistency(self):
-        """Test that config flow uses consistent format."""
-        # This would test the config_flow.py container_options creation
-        # to ensure it uses the correct format
-        pass
+    assert len(entities) == 2
+    assert create_entity.call_count == 2

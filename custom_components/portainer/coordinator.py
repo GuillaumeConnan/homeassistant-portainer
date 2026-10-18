@@ -381,7 +381,11 @@ class PortainerCoordinator(DataUpdateCoordinator):
                         type(containers_response),
                         (
                             list(containers_response[0].keys())
-                            if containers_response
+                            if (
+                                isinstance(containers_response, list)
+                                and containers_response
+                                and isinstance(containers_response[0], dict)
+                            )
                             else "N/A"
                         ),
                     )

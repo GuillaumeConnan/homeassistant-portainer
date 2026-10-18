@@ -5,11 +5,17 @@ on:
     paths:
       - 'custom_components/**'
       - 'tests/**'
+      - '.github/workflows/ci.yml'
+      - 'requirements*.txt'
+      - 'Pipfile'
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
       - 'custom_components/**'
       - 'tests/**'
+      - '.github/workflows/ci.yml'
+      - 'requirements*.txt'
+      - 'Pipfile'
   workflow_dispatch:
 
 jobs:
@@ -36,24 +42,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Generate Requirements lists
-        run: |
-          python3 .github/generate_requirements.py
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements_tests.txt
+          pip install -r requirements.txt -r requirements-test.txt
+      - name: Run tests
+        run: pytest
       - name: Lint with flake8
         run: |
           pip install flake8
           flake8 . --count --select=E9,F63,F7,F82 --ignore W503,E722,F722  --show-source --statistics
           flake8 . --count --exit-zero --max-complexity=15 --max-line-length=127 --statistics
-  #     - name: Test with pytest
-  #       run: |
-  #         pip install pytest
-  #         pytest
-
   security:
     name: Security check - Bandit
     needs: [tests]

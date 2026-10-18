@@ -28,7 +28,14 @@ class TestContainerNameExtraction:
             "ssl": False,
             "verify_ssl": True,
         }
-        config_entry.options = {"containers": ["test_entry_id_1_test-container"]}
+        config_entry.options = {
+            "containers": [
+                "test_entry_id_1_test-container",
+                "test_entry_id_1_primary-name",
+                "test_entry_id_1_unknown",
+                "test_entry_id_1_tëst-cöntainër",
+            ]
+        }
         return config_entry
 
     @pytest.fixture
@@ -119,7 +126,7 @@ class TestContainerNameExtraction:
             coordinator.get_containers()
 
             # Should use fallback name
-            container_key = "test_entry_id_1_container_test123"
+            container_key = "test_entry_id_1_unknown"
             assert container_key in coordinator.raw_data["containers"]
 
     def test_container_name_extraction_missing_names_field(self, coordinator):
@@ -148,7 +155,7 @@ class TestContainerNameExtraction:
             coordinator.get_containers()
 
             # Should use fallback name
-            container_key = "test_entry_id_1_container_test123"
+            container_key = "test_entry_id_1_unknown"
             assert container_key in coordinator.raw_data["containers"]
 
     def test_container_name_extraction_malformed_names(self, coordinator):
@@ -187,7 +194,13 @@ class TestContainerNameExtraction:
                 }
 
         with patch.object(coordinator.api, "query") as mock_query:
-            mock_query.side_effect = [test_containers, mock_inspect_side_effect()]
+
+            def query_side_effect(url, *args, **kwargs):
+                if "containers/json" in url:
+                    return test_containers
+                return mock_inspect_side_effect(url, *args, **kwargs)
+
+            mock_query.side_effect = query_side_effect
 
             coordinator.get_containers()
 
@@ -197,7 +210,7 @@ class TestContainerNameExtraction:
             )
 
             # Second container should use fallback due to malformed Names
-            container_key = "test_entry_id_1_container_test456"
+            container_key = "test_entry_id_1_unknown"
             assert container_key in coordinator.raw_data["containers"]
 
     def test_container_name_extraction_unicode_names(self, coordinator):

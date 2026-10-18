@@ -38,7 +38,7 @@ This guide explains how to set up and use the VS Code Dev Container for developi
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/cbrosius/homeassistant-portainer.git
+   git clone https://github.com/GuillaumeConnan/homeassistant-portainer.git
    cd homeassistant-portainer
    ```
 
@@ -334,10 +334,10 @@ print('Config flow created successfully')
 
 ### Development Setup
 
-1. **Fork Repository**
+1. **Clone the Repository**
    ```bash
-   # Fork on GitHub, then clone
-   git clone https://github.com/YOUR_USERNAME/homeassistant-portainer.git
+   # Clone the independently maintained repository
+   git clone https://github.com/GuillaumeConnan/homeassistant-portainer.git
    cd homeassistant-portainer
    ```
 
@@ -541,8 +541,7 @@ git config --global --add safe.directory /workspaces/homeassistant-portainer
 
 ### Development Support
 
-- **GitHub Issues**: [Report bugs and request features](https://github.com/cbrosius/homeassistant-portainer/issues)
-- **Discussions**: [Q&A and community support](https://github.com/cbrosius/homeassistant-portainer/discussions)
+- **GitHub Issues**: [Report bugs and request features](https://github.com/GuillaumeConnan/homeassistant-portainer/issues)
 - **Documentation**: Check this development guide and other docs in `/docs`
 
 ### Dev Container Specific Help
@@ -620,7 +619,7 @@ def sample_container_data():
 1. **Update Version**
    ```bash
    # Edit custom_components/portainer/manifest.json
-   "version": "1.0.20"
+   "version": "2.0.0"
    ```
 
 2. **Run Full Test Suite**
@@ -636,8 +635,8 @@ def sample_container_data():
 4. **Commit Changes**
    ```bash
    git add .
-   git commit -m "Release v1.0.20"
-   git tag v1.0.20
+   git commit -m "Release v2.0.0"
+   git tag v2.0.0
    git push && git push --tags
    ```
 

@@ -17,6 +17,8 @@ from custom_components.portainer.const import DOMAIN
 class TestEnvironment:
     """Test environment for Portainer integration."""
 
+    __test__ = False
+
     def __init__(self):
         """Initialize test environment."""
         self.hass: HomeAssistant = None
