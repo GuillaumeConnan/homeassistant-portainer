@@ -11,6 +11,8 @@ on:
       - 'CHANGELOG.md'
       - 'requirements*.txt'
       - 'Pipfile'
+      - 'pytest.ini'
+      - 'tox.ini'
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -22,6 +24,8 @@ on:
       - 'CHANGELOG.md'
       - 'requirements*.txt'
       - 'Pipfile'
+      - 'pytest.ini'
+      - 'tox.ini'
   workflow_dispatch:
 
 jobs:
@@ -35,28 +39,32 @@ jobs:
       - name: Black Code Format Check
         uses: psf/black@stable
         with:
+          version: ">=26.10.1"
           src: "."
           options: "--check --fast --diff"
 
   tests:
     name: Python Tests
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        homeassistant: ['homeassistant==2026.9.0', 'homeassistant>=2026.9.0']
     steps:
       - name: Check out code from GitHub
         uses: "actions/checkout@v4"
-      - name: Set up Python 3.12
+      - name: Set up Python 3.14
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-test.txt
+          pip install -r requirements-test.txt "${{ matrix.homeassistant }}"
       - name: Run tests
         run: pytest
       - name: Lint with flake8
         run: |
-          pip install flake8
+          pip install "flake8>=7.4.1"
           flake8 . --count --select=E9,F63,F7,F82 --ignore W503,E722,F722  --show-source --statistics
           flake8 . --count --exit-zero --max-complexity=15 --max-line-length=127 --statistics
   security:
@@ -69,9 +77,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
       - name: Install dependencies
-        run: pip install bandit
+        run: pip install "bandit>=1.9.4"
       - name: Run Bandit
         run: |
           mkdir -p output

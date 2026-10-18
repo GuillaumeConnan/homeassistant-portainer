@@ -106,25 +106,6 @@ def mock_websocket():
 
 
 @pytest.fixture
-def mock_requests():
-    """Mock requests for HTTP testing."""
-    import requests_mock
-
-    with requests_mock.Mocker() as m:
-        yield m
-
-
-@pytest.fixture
-def mock_aiohttp():
-    """Mock aiohttp for async HTTP testing."""
-    import aiohttp
-    import aioresponses
-
-    with aioresponses.aioresponses() as m:
-        yield m
-
-
-@pytest.fixture
 def capture_logs(caplog):
     """Capture logs during test execution."""
     return caplog

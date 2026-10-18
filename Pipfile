@@ -4,8 +4,12 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 
 [dev-packages]
-wheel = ">=0.34"
-pygithub = ">=1.47"
-homeassistant = ">=0.110.0"
+pytest = ">=9.1.1"
+pytest-asyncio = ">=1.4.0"
+pytest-cov = ">=7.1.0"
 
 [packages]
+homeassistant = ">=2026.9.0"
+
+[requires]
+python_version = "3.14"

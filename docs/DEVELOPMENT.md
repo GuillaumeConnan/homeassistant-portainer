@@ -1,10 +1,12 @@
 # Development Environment Setup
 
-This guide explains how to set up and use the VS Code Dev Container for developing the Portainer Home Assistant integration.
+This guide explains how to develop the Portainer Home Assistant integration
+with a local Python virtual environment. No editor or dev container configuration
+is required.
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
-- [Dev Container Setup](#dev-container-setup)
+- [Environment Setup](#environment-setup)
 - [Development Workflow](#development-workflow)
 - [Testing](#testing)
 - [Debugging](#debugging)
@@ -12,110 +14,37 @@ This guide explains how to set up and use the VS Code Dev Container for developi
 
 ## Prerequisites
 
-### Required Software
+- **Python 3.14.2 or newer**: required by Home Assistant 2026.9.0.
+- **Linux**: use Linux directly, WSL, or a Linux container to run Home Assistant.
+- **Git** and an editor of your choice.
 
-1. **Visual Studio Code**
-   - Download from: https://code.visualstudio.com/
-   - Required for Dev Container support
+## Environment Setup
 
-2. **Docker Desktop** (or Docker Engine)
-   - **Windows/Mac**: Install Docker Desktop
-   - **Linux**: Install Docker Engine
-   - Dev Container requires Docker to run
+```bash
+git clone https://github.com/GuillaumeConnan/homeassistant-portainer.git
+cd homeassistant-portainer
+python3.14 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-test.txt
+```
 
-3. **Git**
-   - Required for version control
-   - Configure Git user (handled automatically by dev container)
+`requirements-test.txt` includes the runtime requirements and only the plugins
+used by the tests: pytest, pytest-asyncio, and pytest-cov. HTTP requests are mocked
+with the standard library's `unittest.mock`.
 
-### Optional but Recommended
+For code quality tools, install tox separately with
+`python -m pip install "tox>=4.67.1"` and use `tox -e lint`, `tox -e security`,
+or `tox -e format`. Each environment installs its own tools. Pipenv users can
+alternatively use `pipenv install --dev`; the Pipfile mirrors the same
+runtime and test dependencies.
 
-- **GitHub Account**: For contributing to the repository
-- **Home Assistant Development Experience**: Helpful for understanding the codebase
+CI runs Python 3.14 and tests both Home Assistant 2026.9.0 and the latest compatible
+release. To check the minimum locally:
 
-## Dev Container Setup
-
-### Quick Start
-
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/GuillaumeConnan/homeassistant-portainer.git
-   cd homeassistant-portainer
-   ```
-
-2. **Open in VS Code**
-   ```bash
-   code .
-   ```
-
-3. **Reopen in Dev Container**
-   - When prompted, click "Reopen in Container"
-   - Or use Command Palette: `Dev Containers: Reopen in Container`
-
-4. **Wait for Setup**
-   - Container build and setup takes 2-5 minutes
-   - Dependencies are automatically installed
-   - Git configuration is applied
-
-### Manual Setup (if auto-prompt doesn't appear)
-
-1. **Open Command Palette**
-   - `Ctrl+Shift+P` (Linux/Windows) or `Cmd+Shift+P` (Mac)
-
-2. **Select Dev Container Command**
-   ```bash
-   Dev Containers: Reopen in Container
-   ```
-
-3. **Choose Configuration**
-   - Select the default configuration when prompted
-
-## Dev Container Features
-
-### Pre-configured Environment
-
-The dev container includes:
-
-#### Python Development
-- **Python 3.13**: Latest stable Python version
-- **Poetry**: Python dependency management
-- **Black**: Code formatting
-- **Pylint**: Code linting and error detection
-
-#### Development Tools
-- **Git**: Version control with auto-configuration
-- **Home Assistant Types**: Type hints for HA development
-- **Testing Framework**: Pytest with coverage reporting
-- **Debug Tools**: Python debugger integration
-
-#### Pre-installed Dependencies
-- **Home Assistant Core**: For integration testing
-- **Portainer API Libraries**: For API development
-- **Test Fixtures**: Comprehensive test data
-- **Development Utilities**: Various helper tools
-
-### VS Code Extensions (Auto-installed)
-
-| Extension | Purpose |
-|-----------|---------|
-| `ms-python.python` | Python language support |
-| `ms-python.pylint` | Python linting |
-| `ms-python.vscode-pylance` | Type checking and IntelliSense |
-| `github.vscode-pull-request-github` | GitHub integration |
-| `ryanluker.vscode-coverage-gutters` | Test coverage visualization |
-
-### VS Code Settings (Auto-configured)
-
-#### **Editor Settings**
-- **Tab Size**: 4 spaces (Python standard)
-- **Line Endings**: Unix (`\n`)
-- **Format on Save**: Enabled with Black
-- **Trim Trailing Whitespace**: Enabled
-
-#### **Python Settings**
-- **Python Path**: `/usr/bin/python3`
-- **Analysis Paths**: Configured for Home Assistant
-- **Linting**: Pylint enabled
-- **Formatting**: Black provider
+```bash
+python -m pip install -r requirements-test.txt "homeassistant==2026.9.0"
+python -m pytest
+```
 
 ## Development Workflow
 
@@ -123,19 +52,15 @@ The dev container includes:
 
 1. **Start Development**
    ```bash
-   # Open project in VS Code
-   code .
-
-   # Dev container starts automatically
-   # All dependencies are ready to use
+   # Activate the environment in each new shell
+   source .venv/bin/activate
    ```
 
 2. **Code Development**
    ```bash
    # Edit files normally
-   # Black formatting applied on save
-   # Pylint checks run automatically
-   # Type hints provide IntelliSense
+   # Use your preferred editor
+   # Configure formatting and linting locally if desired
    ```
 
 3. **Run Tests**
@@ -153,20 +78,17 @@ The dev container includes:
 4. **Check Code Quality**
    ```bash
    # Format code
-   black .
+   tox -e format
 
-   # Lint code
-   pylint custom_components/portainer/
-
-   # Type checking
-   mypy custom_components/portainer/
+   # Check formatting and linting
+   tox -e lint
    ```
 
 ### Integration Testing
 
 #### **Test with Home Assistant**
 ```bash
-# Start Home Assistant in container
+# Start Home Assistant in the activated Linux environment
 python -m homeassistant --config config/
 
 # Test integration loading
@@ -279,6 +201,7 @@ mock_api.connected.return_value = True
 ### Debug Configuration
 
 #### **Python Debugger**
+
 1. **Set Breakpoints**: Click in the gutter next to line numbers
 2. **Start Debugging**: Press `F5` or use Debug panel
 3. **Debug Console**: View variables and expressions
@@ -367,12 +290,12 @@ print('Config flow created successfully')
 ### Code Quality Standards
 
 #### **Formatting**
-- **Black**: Code formatting (auto-applied on save)
+- **Black**: Code formatting (`tox -e format`)
 - **Line Length**: 88 characters (Black default)
 - **Quotes**: Double quotes preferred
 
 #### **Linting**
-- **Pylint**: Error checking (configured in dev container)
+- **Pylint**: Error checking (`tox -e lint`)
 - **Type Hints**: Use for all function parameters and returns
 - **Docstrings**: Google style for modules and classes
 
@@ -428,39 +351,21 @@ def process_data(data: Dict[str, Any]) -> Optional[str]:
 
 ## Troubleshooting Dev Environment
 
-### Dev Container Issues
-
-#### **Container Won't Start**
-```bash
-# Check Docker status
-docker --version
-docker ps
-
-# Rebuild container
-Dev Containers: Rebuild Container
-```
-
-#### **Extensions Not Loading**
-```bash
-# Reload VS Code window
-Ctrl+Shift+P > "Developer: Reload Window"
-```
-
 #### **Python Path Issues**
 ```bash
-# Check Python installation in container
-which python3
-python3 --version
+# Check the active interpreter (Python 3.14.2 minimum)
+python --version
+python -c "import sys; print(sys.executable)"
 
-# Verify Home Assistant types
-python3 -c "import homeassistant; print('HA imported successfully')"
+# Verify the installed Home Assistant version
+python -m pip show homeassistant
 ```
 
 ### Common Development Issues
 
 #### **Import Errors**
 ```bash
-# Ensure you're in the dev container
+# Ensure the virtual environment is active
 # Check if file exists and has correct permissions
 ls -la custom_components/portainer/
 
@@ -482,11 +387,8 @@ ls -la tests/fixtures/
 
 #### **Git Issues**
 ```bash
-# Check git configuration (auto-set by dev container)
+# Check your local Git configuration
 git config --list
-
-# Ensure safe directory is configured
-git config --global --add safe.directory /workspaces/homeassistant-portainer
 ```
 
 ## Performance Tips
@@ -517,26 +419,6 @@ git config --global --add safe.directory /workspaces/homeassistant-portainer
    # Set breakpoints and use F5
    ```
 
-### Container Optimization
-
-1. **Container Size Management**
-   ```bash
-   # Check container size
-   docker ps -s
-
-   # Clean up unused containers
-   docker container prune
-   ```
-
-2. **Memory Usage**
-   ```bash
-   # Monitor container memory
-   docker stats
-
-   # Limit container memory if needed
-   # Edit .devcontainer/devcontainer.json
-   ```
-
 ## Getting Help
 
 ### Development Support
@@ -544,38 +426,9 @@ git config --global --add safe.directory /workspaces/homeassistant-portainer
 - **GitHub Issues**: [Report bugs and request features](https://github.com/GuillaumeConnan/homeassistant-portainer/issues)
 - **Documentation**: Check this development guide and other docs in `/docs`
 
-### Dev Container Specific Help
-
-- **VS Code Dev Containers**: [Official documentation](https://code.visualstudio.com/docs/devcontainers/containers)
-- **Docker Issues**: [Docker community forums](https://forums.docker.com/)
 - **Python Development**: [Python documentation](https://docs.python.org/3/)
 
 ## Advanced Configuration
-
-### Custom Dev Container Settings
-
-#### **Add Python Packages**
-```bash
-# Edit .devcontainer/devcontainer.json
-"postCreateCommand": "pip3 install --user -r requirements.txt -r requirements-dev.txt"
-```
-
-#### **Add VS Code Extensions**
-```bash
-# Edit .devcontainer/devcontainer.json
-"extensions": [
-    "ms-python.python",
-    "your.custom.extension"
-]
-```
-
-#### **Mount Additional Volumes**
-```bash
-# For persistent data or custom configurations
-"mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
-]
-```
 
 ### Custom Testing Setup
 
@@ -640,7 +493,7 @@ behavior and migration impact, not just the commit title; link related PRs when 
 3. **Preview release notes and check formatting**
    ```bash
    python .github/generate_releasenotes.py --tag v2.0.0 --output release-notes-preview.md
-   black --check --fast --diff .
+   tox -e lint
    ```
    Review the preview, including security and migration guidance, then remove the
    preview file. Extraction requires a unique dated section with actual content.
@@ -668,20 +521,6 @@ behavior and migration impact, not just the commit title; link related PRs when 
    To correct published notes, update the changelog for a future release rather
    than moving an existing tag. Manual edits to the GitHub release body are not
    the source of truth and will be replaced if its workflow is rerun.
-
-## Summary
-
-The VS Code Dev Container provides a complete, isolated development environment with:
-
-- ✅ **All dependencies pre-installed**
-- ✅ **Consistent development environment**
-- ✅ **Automated code quality checks**
-- ✅ **Comprehensive testing tools**
-- ✅ **Debug capabilities**
-- ✅ **Professional development workflow**
-
-This setup ensures all developers work in identical environments, reducing "works on my machine" issues and providing a smooth development experience.
-
 
 ### Release Deployment Issues
 If you experience issues after deploying a new release:

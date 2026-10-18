@@ -22,6 +22,12 @@ publishing, move its entries into a dated version section.
 ### Changed
 
 - Require Home Assistant 2026.9.0 or newer.
+- Align development dependencies, tox and CI with Home Assistant 2026.9.0 and
+  Python 3.14.2 or newer. Test both the minimum and latest compatible Home Assistant
+  releases in CI, raise code-quality tool minimum versions and remove unused test
+  dependencies.
+- Document development with a local Python virtual environment and ignore local
+  editor settings, virtual environments, test caches and coverage output.
 - Establish independent releases, documentation and issue tracking for this fork.
 - Fetch stacks once per setup/options selection form and filter them locally by
   selected, reachable endpoints instead of repeating the same request.
@@ -58,6 +64,13 @@ publishing, move its entries into a dated version section.
 - Preserve explicit SSL settings when retrying integration setup.
 - Restore and extend automated integration tests and remove the inherited
   upstream SonarCloud workflow.
+- Apply pytest configuration correctly and adapt options-flow tests to
+  Home Assistant's read-only config-entry lookup.
+
+### Removed
+
+- Remove the shared VS Code launch configuration and dev container configuration.
+  Developers can continue using their preferred editor or container setup locally.
 
 ### Security
 
@@ -67,6 +80,9 @@ publishing, move its entries into a dated version section.
 
 ### Migration notes
 
+- Contributors need Python 3.14.2 or newer. Recreate older development environments
+  and install `requirements-test.txt`; code-quality tools are installed separately
+  through tox or CI.
 - Existing resource selections remain supported and are normalized automatically
   when integration options are saved; no manual reselection is required.
 - Automations now receive errors for failed actions beyond container removal.
