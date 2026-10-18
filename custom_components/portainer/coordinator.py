@@ -545,7 +545,7 @@ class PortainerCoordinator(DataUpdateCoordinator):
                             if port_str:
                                 ports_list.append(port_str)
                     container["PublishedPorts"] = (
-                        ", ".join(ports_list) if ports_list else "none"
+                        ", ".join(sorted(ports_list)) if ports_list else "none"
                     )
 
                     # Get detailed info for every container

@@ -102,8 +102,8 @@ The integration processes raw Docker API data and adds computed fields:
 - **Environment**: Set to the endpoint name for context
 
 #### Port Information
-- **PublishedPorts**: Formatted string of port mappings
-- **Format**: `"8080->80/tcp, 5432/tcp"`
+- **PublishedPorts**: Formatted string of port mappings, sorted lexicographically so Docker response ordering does not cause sensor state changes. IPv4/IPv6 mappings, duplicate entries and internal ports without public mappings are preserved; an empty port list is shown as `"none"`.
+- **Format**: `"5432/tcp, 8080->80/tcp"`
 
 #### Mount Information
 - **Mounts**: Formatted string of volume mounts
