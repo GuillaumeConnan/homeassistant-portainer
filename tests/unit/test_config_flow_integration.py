@@ -11,6 +11,12 @@ from custom_components.portainer.config_flow import (
 from custom_components.portainer.const import CONF_FEATURE_USE_ACTION_BUTTONS
 
 
+def set_options_entry(flow, entry):
+    """Link the options flow through Home Assistant's config-entry lookup."""
+    flow.handler = entry.entry_id
+    flow.hass.config_entries.async_get_known_entry.return_value = entry
+
+
 @pytest.fixture
 def mock_hass():
     """Create a Home Assistant mock that runs executor jobs inline."""
@@ -108,7 +114,7 @@ async def test_options_flow_reads_endpoint_selections(mock_hass):
     with patch("homeassistant.config_entries.report_usage"), patch(
         "custom_components.portainer.config_flow.PortainerAPI", return_value=api
     ):
-        flow.config_entry = config_entry
+        set_options_entry(flow, config_entry)
         with patch.object(
             flow, "async_show_form", return_value={"type": "form"}
         ) as show_form:
@@ -154,7 +160,7 @@ async def test_stack_inventory_is_fetched_once_for_selected_active_endpoints(
         "custom_components.portainer.config_flow.PortainerAPI", return_value=api
     ), patch.object(flow, "async_show_form", return_value={}) as show_form:
         if options_flow:
-            flow.config_entry = entry
+            set_options_entry(flow, entry)
         else:
             flow.api = api
             flow.options = {**entry.data, **entry.options}
@@ -184,7 +190,7 @@ async def test_failed_stack_fetch_aborts_selection(mock_hass, options_flow):
         "custom_components.portainer.config_flow.PortainerAPI", return_value=api
     ), patch.object(flow, "async_abort", return_value={}) as abort:
         if options_flow:
-            flow.config_entry = Mock(
+            entry = Mock(
                 data={
                     "host": "host",
                     "api_key": "test",
@@ -193,6 +199,7 @@ async def test_failed_stack_fetch_aborts_selection(mock_hass, options_flow):
                 },
                 options={"endpoints": ["1"], "stacks": ["11"]},
             )
+            set_options_entry(flow, entry)
         else:
             flow.api = api
             flow.options = {"name": "Portainer", "endpoints": ["1"]}
@@ -370,7 +377,7 @@ async def test_options_save_keeps_stack_selections_and_existing_tls_setting(mock
     ) as mock_dr, patch("custom_components.portainer.config_flow.er"), patch.object(
         flow, "async_create_entry", return_value={}
     ) as create_entry:
-        flow.config_entry = entry
+        set_options_entry(flow, entry)
         mock_dr.async_entries_for_config_entry.return_value = []
         await flow.async_step_select_items(selection)
 
@@ -435,7 +442,7 @@ async def test_options_keep_missing_resources_and_normalize_legacy_defaults(
     with patch("homeassistant.config_entries.report_usage"), patch(
         "custom_components.portainer.config_flow.PortainerAPI", return_value=api
     ), patch.object(flow, "async_show_form", return_value={}) as show:
-        flow.config_entry = selection_entry
+        set_options_entry(flow, selection_entry)
         await flow.async_step_select_items()
     defaults = show.call_args.kwargs["data_schema"]({})
     assert defaults["containers"] == ["1_web_api", "10_database"]
@@ -458,7 +465,7 @@ async def test_endpoint_form_retains_unlisted_saved_endpoints(
     with patch("homeassistant.config_entries.report_usage"), patch(
         "custom_components.portainer.config_flow.PortainerAPI", return_value=api
     ), patch.object(flow, "async_show_form", return_value={}) as show:
-        flow.config_entry = selection_entry
+        set_options_entry(flow, selection_entry)
         await flow.async_step_init()
     assert show.call_args.kwargs["data_schema"]({})["endpoints"] == ["1", "10"]
 
@@ -475,7 +482,7 @@ async def test_endpoint_changes_are_staged_until_final_submission(
     ) as registry, patch.object(
         flow, "async_step_select_items", new_callable=AsyncMock
     ):
-        flow.config_entry = selection_entry
+        set_options_entry(flow, selection_entry)
         await flow.async_step_init({"endpoints": ["10"]})
     registry.async_get.assert_not_called()
     assert selection_entry.options == {}
@@ -535,7 +542,7 @@ async def test_offline_stacks_are_excluded_only_for_explicitly_removed_endpoints
     ), patch.object(
         flow, "async_show_form", return_value={}
     ) as show:
-        flow.config_entry = selection_entry
+        set_options_entry(flow, selection_entry)
         await flow.async_step_select_items()
     defaults = show.call_args.kwargs["data_schema"]({})
     assert defaults["containers"] == ["10_database"]
@@ -556,7 +563,7 @@ async def test_failed_inventory_never_cleans_devices(mock_hass, selection_entry)
     ), patch("custom_components.portainer.config_flow.dr") as registry, patch.object(
         flow, "async_abort", return_value={}
     ):
-        flow.config_entry = selection_entry
+        set_options_entry(flow, selection_entry)
         await flow.async_step_select_items()
     registry.async_get.assert_not_called()
     assert selection_entry.options == {}
@@ -598,7 +605,7 @@ async def test_final_cleanup_matches_exact_typed_identifiers(
     ) as entities, patch.object(
         flow, "async_create_entry", return_value={}
     ):
-        flow.config_entry = selection_entry
+        set_options_entry(flow, selection_entry)
         registry.async_entries_for_config_entry.return_value = devices
         entities.async_entries_for_device.return_value = [
             Mock(entity_id="sensor.own", config_entry_id="entry"),

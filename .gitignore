@@ -1,9 +1,23 @@
-# Ignore VS Code settings
-.vscode/settings.json
-.sonarlint/connectedMode.json
-GEMINI.md
-config/*
-__pycache__
-**/__pycache__
-*.pyc
-!config/configuration.yaml
+# Local editor and assistant configuration
+/.vscode/
+/.sonarlint/
+/GEMINI.md
+
+# Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Test, coverage and analysis output
+.tox/
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Local Home Assistant data; keep the example configuration
+/config/*
+!/config/configuration.yaml

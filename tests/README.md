@@ -56,15 +56,17 @@ Main pytest configuration with:
 - Warning filters
 
 ### requirements-test.txt
-Test dependencies including:
-- pytest and pytest-asyncio
-- Home Assistant
-- Mock libraries
-- Code quality tools
+Requires Python 3.14.2 or newer. Install with
+`python -m pip install -r requirements-test.txt`.
+
+Test dependencies include pytest, pytest-asyncio, pytest-cov, and Home Assistant
+2026.9.0 or newer (via `requirements.txt`). HTTP calls are mocked with
+`unittest.mock`; no additional HTTP mocking or snapshot plugins are needed.
+Code quality tools are installed separately by tox or CI.
 
 ### tox.ini
 Multi-environment testing configuration with:
-- Multiple Python versions (3.8-3.11)
+- Python 3.14 (3.14.2 minimum)
 - Linting and security checks
 - Coverage reporting
 
@@ -106,7 +108,7 @@ pytest -m "not slow"
 tox
 
 # Run specific environment
-tox -e py39
+tox -e py314
 
 # Run linting only
 tox -e lint
@@ -174,7 +176,7 @@ Located in `tests/fixtures/test_environment.py`, provides:
 Located in `tests/conftest.py`:
 - `config_entry`: Home Assistant config entry
 - `mock_portainer_api`: Mock API responses
-- `mock_coordinator`, `mock_hass_config`, `mock_aiohttp`, and `mock_requests`
+- `mock_coordinator` and `mock_hass_config`
 - `sample_container_data`, `sample_endpoint_data`, and sample configuration data
 
 ## Best Practices
