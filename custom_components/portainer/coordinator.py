@@ -145,16 +145,18 @@ class PortainerCoordinator(DataUpdateCoordinator):
     # ---------------------------
     #   _async_update_data
     # ---------------------------
-    async def _async_update_data(self) -> None:
+    async def _async_update_data(self) -> dict:
         """Update Portainer data."""
         lock_acquired = False
         try:
             await asyncio_wait_for(self.lock.acquire(), timeout=10)
             lock_acquired = True
-        except Exception:
-            _LOGGER.warning("Failed to acquire lock within timeout, skipping update")
-            return
+        except TimeoutError as error:
+            raise UpdateFailed(
+                "Timed out waiting for the Portainer update lock"
+            ) from error
 
+        previous_data = self.raw_data
         try:
             self.raw_data = {}
             _LOGGER.debug("Starting Portainer data update for %s", self.name)
@@ -175,12 +177,23 @@ class PortainerCoordinator(DataUpdateCoordinator):
             await self.hass.async_add_executor_job(self.get_stacks)
             _LOGGER.debug("Retrieved %d stacks", len(self.raw_data.get("stacks", {})))
 
+            offline_endpoints = {
+                str(eid)
+                for eid, endpoint in self.raw_data.get("endpoints", {}).items()
+                if endpoint.get("Status") != 1
+            }
+            for dataset in ("containers", "stacks"):
+                for uid, resource in previous_data.get(dataset, {}).items():
+                    if str(resource.get("EndpointId")) in offline_endpoints:
+                        self.raw_data.setdefault(dataset, {}).setdefault(uid, resource)
+
             # Create/update endpoint devices in the registry before entities are created.
             # This prevents race conditions where a container device is created before
             # its parent endpoint device.
             self._create_endpoint_devices()
             _LOGGER.debug("Created endpoint devices")
         except Exception as error:
+            self.raw_data = previous_data
             _LOGGER.error("Error updating Portainer data for %s: %s", self.name, error)
             raise UpdateFailed(error) from error
         finally:
@@ -232,6 +245,12 @@ class PortainerCoordinator(DataUpdateCoordinator):
             placeholders = {}
 
             if device.model == "Container":
+                if any(
+                    device_identifier.startswith(f"{self.config_entry_id}_{eid}_")
+                    for eid, endpoint in self.raw_data.get("endpoints", {}).items()
+                    if endpoint.get("Status") != 1
+                ):
+                    continue
                 device_found = device_identifier in current_container_identifiers
                 issue_key = f"missing_container_{device_identifier}"
                 translation_key = "missing_container"
@@ -246,6 +265,8 @@ class PortainerCoordinator(DataUpdateCoordinator):
                 issue_key = f"missing_stack_{device_identifier}"
                 translation_key = "missing_stack"
                 placeholders = {"entity_name": device.name or "unknown"}
+            else:
+                continue
 
             # Map device model to failure tracking key
             model_key_map = {
@@ -285,11 +306,22 @@ class PortainerCoordinator(DataUpdateCoordinator):
     # ---------------------------
     #   get_endpoints
     # ---------------------------
+    def _query_collection(self, service: str, params: dict | None = None) -> list[dict]:
+        """Require a valid inventory response before considering resources missing."""
+        response = self.api.query(service, "GET", params)
+        if not isinstance(response, list) or any(
+            not isinstance(item, dict) for item in response
+        ):
+            raise UpdateFailed(
+                f"Unable to fetch {service}: {self.api.error or 'invalid response'}"
+            )
+        return response
+
     def get_endpoints(self) -> None:
         """Get endpoints."""
 
         self.raw_data["endpoints"] = {}
-        endpoints_response = self.api.query("endpoints")
+        endpoints_response = self._query_collection("endpoints")
         _LOGGER.debug(
             "Endpoints API response: type=%s, count=%d",
             type(endpoints_response),
@@ -332,7 +364,14 @@ class PortainerCoordinator(DataUpdateCoordinator):
             if self.raw_data["endpoints"][eid]["Status"] == 1:
                 self.raw_data["endpoints"][eid] = parse_api(
                     data=self.raw_data["endpoints"][eid],
-                    source=self.raw_data["endpoints"][eid]["Snapshots"][0],
+                    source=(
+                        self.raw_data["endpoints"][eid]["Snapshots"][0]
+                        if isinstance(
+                            self.raw_data["endpoints"][eid]["Snapshots"], list
+                        )
+                        and self.raw_data["endpoints"][eid]["Snapshots"]
+                        else {}
+                    ),
                     vals=[
                         {"name": "DockerVersion", "default": "unknown"},
                         {"name": "Swarm", "default": False},
@@ -361,8 +400,8 @@ class PortainerCoordinator(DataUpdateCoordinator):
             if self.raw_data["endpoints"][eid]["Status"] == 1:
                 self.raw_data["containers"][eid] = {}
                 _LOGGER.debug("Fetching containers for endpoint %s", eid)
-                containers_response = self.api.query(
-                    f"endpoints/{eid}/docker/containers/json", "GET", {"all": True}
+                containers_response = self._query_collection(
+                    f"endpoints/{eid}/docker/containers/json", {"all": True}
                 )
 
                 containers_count = (
@@ -553,63 +592,16 @@ class PortainerCoordinator(DataUpdateCoordinator):
                     )
 
                     # Get detailed info for every container
-                    try:
-                        inspect_data_raw = self.api.query(
-                            f"endpoints/{eid}/docker/containers/{cid}/json",
-                            "GET",
-                            {"all": True},
+                    inspect_data_raw = self.api.query(
+                        f"endpoints/{eid}/docker/containers/{cid}/json",
+                        "GET",
+                        {"all": True},
+                    )
+                    if not isinstance(inspect_data_raw, dict) or not inspect_data_raw:
+                        raise UpdateFailed(
+                            f"Unable to inspect container {cid} on endpoint {eid}: "
+                            f"{self.api.error or 'invalid response'}"
                         )
-                        if not inspect_data_raw or not isinstance(
-                            inspect_data_raw, dict
-                        ):
-                            _LOGGER.warning(
-                                "Container %s on endpoint %s inspection returned no data or invalid format, skipping",
-                                container.get("Name", cid),
-                                eid,
-                            )
-                            _LOGGER.warning(
-                                "Container details - Name: %s, CID: %s, EID: %s, Selected: %s or %s",
-                                container.get("Name", "unknown"),
-                                cid,
-                                eid,
-                                (
-                                    container_key in self.selected_containers
-                                    if self.selected_containers
-                                    else "no selection"
-                                ),
-                                (
-                                    config_name_key in self.selected_containers
-                                    if self.selected_containers
-                                    else "no selection"
-                                ),
-                            )
-                            del all_containers[cid]
-                            continue
-                    except Exception as e:
-                        _LOGGER.warning(
-                            "Failed to inspect container %s on endpoint %s: %s, skipping",
-                            container.get("Name", cid),
-                            eid,
-                            e,
-                        )
-                        _LOGGER.warning(
-                            "Container details - Name: %s, CID: %s, EID: %s, Selected: %s or %s",
-                            container.get("Name", "unknown"),
-                            cid,
-                            eid,
-                            (
-                                container_key in self.selected_containers
-                                if self.selected_containers
-                                else "no selection"
-                            ),
-                            (
-                                config_name_key in self.selected_containers
-                                if self.selected_containers
-                                else "no selection"
-                            ),
-                        )
-                        del all_containers[cid]
-                        continue
 
                     if container is not None:
                         self.raw_data["containers"][eid][cid] = container
@@ -776,7 +768,7 @@ class PortainerCoordinator(DataUpdateCoordinator):
         self.raw_data["stacks"] = {}
         all_stacks = parse_api(
             data={},
-            source=self.api.query("stacks"),
+            source=self._query_collection("stacks"),
             key="Id",
             vals=[
                 {"name": "Id", "default": 0},
@@ -791,7 +783,11 @@ class PortainerCoordinator(DataUpdateCoordinator):
         )
         # Only keep selected stacks
         for sid in all_stacks:
-            if self.selected_stacks and str(sid) in self.selected_stacks:
+            if (
+                self.selected_stacks
+                and str(sid) in self.selected_stacks
+                and str(all_stacks[sid]["EndpointId"]) in self.selected_endpoints
+            ):
                 self.raw_data["stacks"][str(sid)] = all_stacks[sid]
 
     # ---------------------------

@@ -123,6 +123,7 @@ async def _handle_perform_container_action(call: ServiceCall) -> None:
 
     device_reg = dr.async_get(hass)
     entity_reg = er.async_get(hass)
+    removal_errors = []
 
     devices_by_config_entry: dict[str, list[tuple[str, str]]] = {}
     for device_id in container_device_ids:
@@ -189,6 +190,17 @@ async def _handle_perform_container_action(call: ServiceCall) -> None:
                 service_path = (
                     f"endpoints/{endpoint_id}/docker/containers/{container_id}/{action}"
                 )
+                method = "POST"
+                params = {}
+                if action == "remove":
+                    service_path = (
+                        f"endpoints/{endpoint_id}/docker/containers/{container_id}"
+                    )
+                    method = "DELETE"
+                    params = {
+                        "force": str(call.data.get("force", False)).lower(),
+                        "v": str(call.data.get("remove_volumes", False)).lower(),
+                    }
                 _LOGGER.debug(
                     "Performing '%s' action on container ID '%s' via path '%s'",
                     action,
@@ -196,7 +208,7 @@ async def _handle_perform_container_action(call: ServiceCall) -> None:
                     service_path,
                 )
                 await call.hass.async_add_executor_job(
-                    coordinator.api.query, service_path, "POST", {}
+                    coordinator.api.query, service_path, method, params
                 )
                 if not coordinator.api.error:
                     if container_name:
@@ -214,16 +226,15 @@ async def _handle_perform_container_action(call: ServiceCall) -> None:
                         coordinator.name,
                         coordinator.api.error or "unknown error",
                     )
+                    if action == "remove":
+                        removal_errors.append(
+                            f"{container_name}: {coordinator.api.error}"
+                        )
+                    continue
 
                 # If action is "remove", also remove the device and its entities from Home Assistant
                 if action == "remove":
                     try:
-                        # Remove the device from device registry
-                        device_reg.async_remove_device(device_id)
-                        _LOGGER.debug(
-                            "Removed device '%s' from device registry", device_id
-                        )
-
                         # Remove all entities for this device
                         entities_for_device = er.async_entries_for_device(
                             entity_reg, device_id, include_disabled_entities=True
@@ -236,6 +247,7 @@ async def _handle_perform_container_action(call: ServiceCall) -> None:
                                 device_id,
                             )
 
+                        device_reg.async_remove_device(device_id)
                         _LOGGER.info(
                             "Successfully removed container device '%s' and all its entities from Home Assistant",
                             device_id,
@@ -246,6 +258,7 @@ async def _handle_perform_container_action(call: ServiceCall) -> None:
                             device_id,
                             device_removal_error,
                         )
+                        removal_errors.append(f"{device_id}: {device_removal_error}")
 
             except Exception as e:
                 _LOGGER.error(
@@ -255,8 +268,15 @@ async def _handle_perform_container_action(call: ServiceCall) -> None:
                     coordinator.name,
                     e,
                 )
+                if action == "remove":
+                    removal_errors.append(f"{identifier}: {e}")
 
         await coordinator.async_request_refresh()
+
+    if removal_errors:
+        raise HomeAssistantError(
+            "Failed to remove Portainer containers: " + "; ".join(removal_errors)
+        )
 
 
 async def _handle_perform_stack_action(call: ServiceCall) -> None:

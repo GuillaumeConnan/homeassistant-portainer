@@ -275,7 +275,7 @@ class TestPortainerAPI:
         endpoints_response = Mock()
         endpoints_response.status_code = 200
         endpoints_response.content = json.dumps(get_endpoints_response()).encode()
-        endpoints_response.json.return_value = get_endpoints_response()
+        endpoints_response.json.return_value = get_endpoints_response()[:1]
 
         # Mock containers response for first endpoint
         containers_response = Mock()
@@ -576,6 +576,76 @@ class TestPortainerAPI:
             assert result is None
             assert api._error == "lock_error"
             mock_lock.acquire.assert_called_once()
+
+    @pytest.mark.parametrize("status", [401, 403, 404, 500])
+    def test_real_http_error_preserves_status(self, api, mock_session, status):
+        """Requests error responses are falsey but still carry the HTTP status."""
+        response = requests.Response()
+        response.status_code = status
+        response.url = "http://localhost:9000/api/endpoints"
+        mock_session.get.return_value = response
+        api._session = mock_session
+        api._connected = True
+
+        assert api.query("endpoints") is None
+        assert api.error == status
+        assert api.connected() is False
+        assert not api.lock.locked()
+
+    @pytest.mark.parametrize("failure", ["connection", "json", "method"])
+    def test_failure_clears_connected_and_releases_lock(
+        self, api, mock_session, failure
+    ):
+        """Every failure path invalidates a previous connection and unlocks queries."""
+        api._session = mock_session
+        api._connected = True
+        if failure == "connection":
+            mock_session.get.side_effect = requests.Timeout("Timed out")
+        elif failure == "json":
+            mock_session.get.return_value.content = b"invalid"
+            mock_session.get.return_value.json.side_effect = json.JSONDecodeError(
+                "Invalid JSON", "", 0
+            )
+
+        api.query("endpoints", "INVALID" if failure == "method" else "GET")
+
+        assert api.connected() is False
+        assert not api.lock.locked()
+
+    def test_delete_sends_query_parameters(self, api, mock_session):
+        """Docker delete options must be query parameters, not a JSON body."""
+        mock_session.delete.return_value.content = b""
+        api._session = mock_session
+        params = {"force": "true", "v": "false"}
+
+        api.query("endpoints/1/docker/containers/abc", "DELETE", params)
+
+        mock_session.delete.assert_called_once_with(
+            "http://localhost:9000/api/endpoints/1/docker/containers/abc",
+            params=params,
+            timeout=10,
+        )
+
+    def test_get_stacks_all_endpoints(self, api):
+        """One stack inventory supplies endpoint IDs for local filtering."""
+        with patch.object(api, "query", return_value=get_stacks_response()) as query:
+            stacks = api.get_stacks()
+
+        query.assert_called_once_with("stacks")
+        assert len(stacks) == len(get_stacks_response())
+        assert all(isinstance(stack["endpoint_id"], str) for stack in stacks)
+
+    @pytest.mark.parametrize("response", [None, {}, [None]])
+    def test_get_stacks_failure_is_not_an_empty_inventory(self, api, response):
+        """Failed stack requests must not silently deselect configured stacks."""
+        with patch.object(api, "query", return_value=response):
+            with pytest.raises(ValueError, match="Unable to fetch stacks"):
+                api.get_stacks()
+
+    def test_get_stacks_empty_inventory(self, api):
+        """An empty successful stack inventory remains valid."""
+        with patch.object(api, "query", return_value=[]):
+            assert api.get_stacks() == []
 
     def test_recreate_container_lock_timeout(self, api, mock_session):
         """Test container recreation lock acquisition timeout."""

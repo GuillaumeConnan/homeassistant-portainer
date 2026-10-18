@@ -6,6 +6,9 @@ on:
       - 'custom_components/**'
       - 'tests/**'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
+      - '.github/generate_releasenotes.py'
+      - 'CHANGELOG.md'
       - 'requirements*.txt'
       - 'Pipfile'
   pull_request:
@@ -14,6 +17,9 @@ on:
       - 'custom_components/**'
       - 'tests/**'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
+      - '.github/generate_releasenotes.py'
+      - 'CHANGELOG.md'
       - 'requirements*.txt'
       - 'Pipfile'
   workflow_dispatch:

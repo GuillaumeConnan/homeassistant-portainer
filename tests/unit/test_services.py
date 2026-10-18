@@ -1,6 +1,7 @@
 """Unit tests for Portainer services module."""
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from custom_components.portainer.services import (
@@ -1038,10 +1039,10 @@ class TestPortainerServices:
                 mock_logger.error.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handle_perform_container_action_remove_does_not_remove_device(
+    async def test_handle_perform_container_action_remove_default_options(
         self, mock_hass, mock_coordinator
     ):
-        """Test that container removal via service does not remove the device (current behavior)."""
+        """Successful removal uses DELETE with safe defaults and cleans the registry."""
         # Mock device registry
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
@@ -1091,15 +1092,53 @@ class TestPortainerServices:
             # Verify async_add_executor_job was called to remove container
             mock_hass.async_add_executor_job.assert_called_once_with(
                 mock_coordinator.api.query,
-                "endpoints/1/docker/containers/abc123def456/remove",
-                "POST",
-                {},
+                "endpoints/1/docker/containers/abc123def456",
+                "DELETE",
+                {"force": "false", "v": "false"},
             )
 
             # Device should now be removed (fixed behavior)
             mock_device_reg.async_remove_device.assert_called_once_with("device_1")
 
             mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("api_error", [403, 409, 500, "no_response"])
+    async def test_failed_container_removal_keeps_devices_and_entities(
+        self, mock_hass, mock_coordinator, api_error
+    ):
+        """A failed remote deletion must neither erase local devices nor look successful."""
+        device = Mock(
+            identifiers={("portainer", "test_entry_id_1_web-server")},
+            config_entries={"test_entry_id"},
+        )
+        mock_coordinator.get_specific_container.return_value = {
+            "Id": "abc",
+            "Name": "web-server",
+            "EndpointId": "1",
+        }
+        mock_coordinator.api.error = api_error
+        mock_hass.data[DOMAIN]["test_entry_id"] = {"coordinator": mock_coordinator}
+        call = Mock(
+            hass=mock_hass,
+            data={ATTR_ACTION: "remove", ATTR_CONTAINER_DEVICES: ["device_1"]},
+        )
+        with patch("custom_components.portainer.services.dr") as mock_dr, patch(
+            "custom_components.portainer.services.er"
+        ) as mock_er:
+            device_registry = mock_dr.async_get.return_value
+            device_registry.async_get.return_value = device
+            from custom_components.portainer.services import (
+                _handle_perform_container_action,
+            )
+
+            with pytest.raises(HomeAssistantError, match="Failed to remove"):
+                await _handle_perform_container_action(call)
+
+            device_registry.async_remove_device.assert_not_called()
+            mock_er.async_entries_for_device.assert_not_called()
+            mock_er.async_get.return_value.async_remove.assert_not_called()
+        mock_coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_handle_perform_container_action_remove_with_force_and_volumes(
@@ -1155,9 +1194,9 @@ class TestPortainerServices:
             # Verify async_add_executor_job was called with correct parameters
             mock_hass.async_add_executor_job.assert_called_once_with(
                 mock_coordinator.api.query,
-                "endpoints/1/docker/containers/xyz789abc123/remove",
-                "POST",
-                {},
+                "endpoints/1/docker/containers/xyz789abc123",
+                "DELETE",
+                {"force": "true", "v": "true"},
             )
 
             # Device should now be removed (fixed behavior)
@@ -1219,9 +1258,9 @@ class TestPortainerServices:
                 # Verify API call was made to remove container (wrapped in executor job)
                 mock_hass.async_add_executor_job.assert_any_call(
                     mock_coordinator.api.query,
-                    "endpoints/1/docker/containers/abc123def456/remove",
-                    "POST",
-                    {},
+                    "endpoints/1/docker/containers/abc123def456",
+                    "DELETE",
+                    {"force": "false", "v": "false"},
                 )
 
                 # Verify device was removed from device registry
@@ -1275,12 +1314,19 @@ class TestPortainerServices:
             call.data = {ATTR_ACTION: "remove", ATTR_CONTAINER_DEVICES: ["device_1"]}
             call.hass = mock_hass
 
-            with patch("custom_components.portainer.services._LOGGER") as mock_logger:
+            with patch(
+                "custom_components.portainer.services._LOGGER"
+            ) as mock_logger, patch(
+                "custom_components.portainer.services.er"
+            ) as mock_er:
+                mock_er.async_get.return_value = mock_entity_reg
+                mock_er.async_entries_for_device.return_value = []
                 from custom_components.portainer.services import (
                     _handle_perform_container_action,
                 )
 
-                await _handle_perform_container_action(call)
+                with pytest.raises(HomeAssistantError, match="Device removal failed"):
+                    await _handle_perform_container_action(call)
 
                 # Should log error for device removal failure
                 mock_logger.error.assert_called_once()
@@ -1334,19 +1380,26 @@ class TestPortainerServices:
             call.data = {ATTR_ACTION: "remove", ATTR_CONTAINER_DEVICES: ["device_1"]}
             call.hass = mock_hass
 
-            with patch("custom_components.portainer.services._LOGGER") as mock_logger:
+            with patch(
+                "custom_components.portainer.services._LOGGER"
+            ) as mock_logger, patch(
+                "custom_components.portainer.services.er"
+            ) as mock_er:
+                mock_er.async_get.return_value = mock_entity_reg
+                mock_er.async_entries_for_device.return_value = [mock_entity_entry]
                 from custom_components.portainer.services import (
                     _handle_perform_container_action,
                 )
 
-                await _handle_perform_container_action(call)
+                with pytest.raises(HomeAssistantError, match="Entity removal failed"):
+                    await _handle_perform_container_action(call)
 
                 # Should log error for entity removal failure
                 mock_logger.error.assert_called_once()
 
-            # API call and device removal should still be made despite entity removal failure
+            # Preserve the device when its entities could not be cleaned up.
             mock_coordinator.api.query.assert_called_once()
-            mock_device_reg.async_remove_device.assert_called_once()
+            mock_device_reg.async_remove_device.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_handle_perform_container_action_remove_multiple_devices(
@@ -1466,7 +1519,10 @@ class TestPortainerServices:
                 _handle_perform_container_action,
             )
 
-            await _handle_perform_container_action(call)
+            with patch("custom_components.portainer.services.er") as mock_er:
+                mock_er.async_get.return_value = mock_entity_reg
+                mock_er.async_entries_for_device.return_value = []
+                await _handle_perform_container_action(call)
 
             # Verify API call was made
             mock_coordinator.api.query.assert_called_once()

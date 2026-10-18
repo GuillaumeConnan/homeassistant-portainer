@@ -28,3 +28,4 @@
 - [ ] The code has been formatted using Black.
 - [ ] Tests have been added to verify that the new code works.
 - [ ] Documentation added/updated if required.
+- [ ] User-visible changes and migration notes added to `CHANGELOG.md` under `[Unreleased]` (or N/A explained above).

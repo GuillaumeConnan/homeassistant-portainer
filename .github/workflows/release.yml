@@ -8,67 +8,47 @@ permissions:
   contents: write
 
 jobs:
-
-  release_zip:
-    name: Prepare release
+  release:
+    name: Validate notes and prepare release
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Clear any existing caches
-        run: |
-          echo "Clearing caches to ensure fresh build"
-          # This helps prevent issues with reused tags
-
-      - name: Check out repository
+      - name: Check out the release tag
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch full history for proper tag handling
-
-      - name: Ensure clean working directory
-        run: |
-          echo "Ensuring clean working directory for release build"
-          # Remove any untracked files that might interfere
-          git clean -fd
-          # Ensure we're on the correct tag
-          git checkout $GITHUB_REF
-
-      - name: Extract Tag Without `v`
-        run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/} # Remove refs/tags/
-          TAG_NAME=${TAG_NAME#v}            # Remove leading v if present
-          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
-      - name: Update version
-        run: |
-          python3 .github/update_version.py --version $TAG_NAME
-      - name: Zip portainer dir
-        run: |
-          cd custom_components/portainer
-          zip portainer.zip -r ./
-      - name: Upload zip to release
-        uses: svenstaro/upload-release-action@v2
-
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: custom_components/portainer/portainer.zip
-          asset_name: portainer.zip
-          tag: ${{ github.ref }}
-          overwrite: true
-
-  releasenotes:
-    name: Prepare releasenotes
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: 3.12
+          python-version: '3.12'
 
-      - name: Install requirements
+      - name: Validate and extract changelog section
         run: |
-          python3 -m pip install setuptools wheel PyGithub
+          python .github/generate_releasenotes.py \
+            --tag "$RELEASE_TAG" \
+            --repository "$GITHUB_REPOSITORY" \
+            --server-url "$GITHUB_SERVER_URL" \
+            --output "$RUNNER_TEMP/release-notes.md"
 
-      - name: Update release notes
+      - name: Publish changelog as release notes
         run: |
-          python3 .github/generate_releasenotes.py --token ${{ secrets.GITHUB_TOKEN }} --release yes --tag ${{ github.ref }}
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+
+      - name: Update packaged integration version
+        run: |
+          python .github/update_version.py --version "${RELEASE_TAG#v}"
+
+      - name: Zip integration
+        working-directory: custom_components/portainer
+        run: zip -r "$RUNNER_TEMP/portainer.zip" .
+
+      - name: Upload integration archive
+        run: |
+          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/portainer.zip" \
+            --repo "$GITHUB_REPOSITORY" --clobber

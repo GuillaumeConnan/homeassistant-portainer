@@ -23,7 +23,7 @@ class TestPortainerButtons:
         return hass
 
     @pytest.fixture
-    def mock_coordinator(self):
+    def mock_coordinator(self, container_data, stack_data):
         """Create mock coordinator."""
         coordinator = Mock()
         coordinator.name = "Test Portainer"
@@ -37,10 +37,14 @@ class TestPortainerButtons:
 
         # Use real dict for data to support subscripting properly
         coordinator.data = {
-            "endpoints": {"1": {"Name": "local", "DockerVersion": "24.0.6"}},
-            "containers": {},
-            "stacks": {},
+            "endpoints": {
+                "1": {"Name": "local", "DockerVersion": "24.0.6", "Status": 1}
+            },
+            "containers": {"test_entry_id_1_web-server": container_data},
+            "stacks": {"test_entry_id_stack_1": stack_data},
         }
+        coordinator.last_update_success = True
+        coordinator.connected.return_value = True
 
         return coordinator
 

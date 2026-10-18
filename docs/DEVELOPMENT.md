@@ -616,29 +616,58 @@ def sample_container_data():
 
 ### Release Steps
 
-1. **Update Version**
-   ```bash
-   # Edit custom_components/portainer/manifest.json
-   "version": "2.0.0"
-   ```
+`CHANGELOG.md` is the source of truth for release notes. Every pull request with
+user-visible changes adds entries under `[Unreleased]`, using `Added`, `Changed`,
+`Fixed`, `Removed`, `Security`, and `Migration notes` as applicable. Describe the
+behavior and migration impact, not just the commit title; link related PRs when useful.
+
+1. **Prepare the changelog and version**
+
+   Move the accumulated entries from `[Unreleased]` into a section named exactly
+   `## [2.0.0] - YYYY-MM-DD`, replacing the date with the real release date. Keep an
+   empty `[Unreleased]` section above it for future changes. Update
+   `custom_components/portainer/manifest.json` to `"version": "2.0.0"`.
 
 2. **Run Full Test Suite**
    ```bash
    python -m pytest
    ```
-
-3. **Format Code**
+   The release-note tests can also run without Home Assistant:
    ```bash
-   black .
+   python -m unittest discover -s tests/release -v
    ```
 
-4. **Commit Changes**
+3. **Preview release notes and check formatting**
    ```bash
-   git add .
-   git commit -m "Release v2.0.0"
+   python .github/generate_releasenotes.py --tag v2.0.0 --output release-notes-preview.md
+   black --check --fast --diff .
+   ```
+   Review the preview, including security and migration guidance, then remove the
+   preview file. Extraction requires a unique dated section with actual content.
+   Both `2.0.0` and `v2.0.0` tags map to the `[2.0.0]` section.
+
+4. **Merge the preparation PR, tag its commit on master, then publish the GitHub release**
+
+   After merging the preparation changes and updating your checkout:
+   ```bash
    git tag v2.0.0
-   git push && git push --tags
+   git push origin v2.0.0
    ```
+   Create and publish a GitHub release using that tag. The release workflow checks
+   out the tag, validates and extracts its changelog section, and replaces the
+   GitHub release body with that section. It appends a comparison to the nearest
+   ancestor version tag when one exists; the first release needs no previous tag.
+   The release title is left unchanged.
+
+   Validation runs before packaging or uploading `portainer.zip`. A missing,
+   duplicate, empty or invalidly dated section fails the workflow; it never falls
+   back to commit titles. Because this workflow is triggered after publication,
+   failure does not unpublish the GitHub release or delete existing assets.
+   Prepare and preview the notes before publishing.
+
+   To correct published notes, update the changelog for a future release rather
+   than moving an existing tag. Manual edits to the GitHub release body are not
+   the source of truth and will be replaced if its workflow is rerun.
 
 ## Summary
 

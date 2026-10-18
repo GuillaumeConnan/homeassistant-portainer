@@ -66,6 +66,7 @@ class TestPortainerCoordinator:
         api = Mock()
         api.connected.return_value = True
         api.query = Mock(return_value=[])
+        api.error = ""
         api.recreate_container = Mock()
         return api
 
@@ -197,9 +198,8 @@ class TestPortainerCoordinator:
         # Mock lock timeout
         coordinator.lock.acquire = AsyncMock(side_effect=asyncio.TimeoutError())
 
-        result = await coordinator._async_update_data()
-
-        assert result is None  # Should return None on timeout
+        with pytest.raises(UpdateFailed, match="update lock"):
+            await coordinator._async_update_data()
 
     @pytest.mark.asyncio
     async def test_async_update_data_exception(self, coordinator, mock_api):
@@ -301,11 +301,8 @@ class TestPortainerCoordinator:
             [],  # containers for endpoint 3
         ]
 
-        coordinator.get_containers()
-
-        # Container should be skipped if inspect fails
-        container_key = "test_entry_id_1_web-server"
-        assert container_key not in coordinator.raw_data["containers"]
+        with pytest.raises(UpdateFailed, match="Unable to inspect container"):
+            coordinator.get_containers()
 
     def test_get_containers_filtering(self, coordinator, mock_api):
         """Test container filtering based on selection."""
@@ -544,6 +541,141 @@ class TestPortainerCoordinator:
         """Test that coordinator lock is properly initialized."""
         assert hasattr(coordinator, "lock")
         assert coordinator.lock is not None
+
+    @pytest.fixture
+    def refresh_inventory(self, coordinator, mock_api):
+        """Provide a complete inventory for real coordinator refreshes."""
+        coordinator.selected_endpoints = {"1"}
+        coordinator.selected_containers = {"test_entry_id_1_web-server"}
+        coordinator.selected_stacks = {"1"}
+        responses = {
+            "endpoints": [{"Id": 1, "Name": "local", "Status": 1, "Snapshots": [{}]}],
+            "endpoints/1/docker/containers/json": [
+                {"Id": "abc", "Names": ["/web-server"], "State": "running"}
+            ],
+            "endpoints/1/docker/containers/abc/json": {
+                "Id": "abc",
+                "State": {"Status": "running"},
+            },
+            "stacks": [{"Id": 1, "Name": "web-stack", "EndpointId": 1, "Status": 1}],
+        }
+        mock_api.query.side_effect = lambda service, *args: responses[service]
+        return responses
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failed_service",
+        [
+            "endpoints",
+            "endpoints/1/docker/containers/json",
+            "endpoints/1/docker/containers/abc/json",
+            "stacks",
+        ],
+    )
+    async def test_failed_refresh_preserves_snapshot_and_skips_repairs(
+        self, coordinator, mock_api, refresh_inventory, failed_service
+    ):
+        """An outage never publishes an empty/partial inventory or advances repairs."""
+        with patch("custom_components.portainer.coordinator.dr") as registry, patch(
+            "custom_components.portainer.coordinator.async_create_issue"
+        ) as create_issue, patch(
+            "custom_components.portainer.coordinator.async_delete_issue"
+        ) as delete_issue:
+            device = Mock(
+                identifiers={(DOMAIN, "test_entry_id_1_web-server")}, model="Container"
+            )
+            registry.async_entries_for_config_entry.return_value = [device]
+            await coordinator.async_refresh()
+            assert coordinator.last_update_success is True
+            previous_data = coordinator.data
+            valid_response = refresh_inventory[failed_service]
+            refresh_inventory[failed_service] = None
+            mock_api.error = "no_response"
+            create_issue.reset_mock()
+            delete_issue.reset_mock()
+
+            for _ in range(4):
+                await coordinator.async_refresh()
+                assert coordinator.last_update_success is False
+                assert coordinator.data is previous_data
+                assert coordinator.raw_data is previous_data
+            create_issue.assert_not_called()
+            delete_issue.assert_not_called()
+            assert coordinator._consecutive_failures == {
+                "containers": {},
+                "endpoints": {},
+                "stacks": {},
+            }
+
+            refresh_inventory[failed_service] = valid_response
+            mock_api.error = ""
+            await coordinator.async_refresh()
+            assert coordinator.last_update_success is True
+            assert coordinator.data == previous_data
+
+    @pytest.mark.asyncio
+    async def test_successful_empty_inventory_still_reports_missing_resources(
+        self, coordinator, refresh_inventory
+    ):
+        """Real resource removal still triggers repairs after three successful scans."""
+        device = Mock(
+            identifiers={(DOMAIN, "test_entry_id_1_web-server")}, model="Container"
+        )
+        with patch("custom_components.portainer.coordinator.dr") as registry, patch(
+            "custom_components.portainer.coordinator.async_create_issue"
+        ) as create_issue, patch(
+            "custom_components.portainer.coordinator.async_delete_issue"
+        ):
+            registry.async_entries_for_config_entry.return_value = [device]
+            await coordinator.async_refresh()
+            refresh_inventory["endpoints/1/docker/containers/json"] = []
+            for _ in range(2):
+                await coordinator.async_refresh()
+                create_issue.assert_not_called()
+            await coordinator.async_refresh()
+            assert coordinator.last_update_success is True
+            assert coordinator.data["containers"] == {}
+            create_issue.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_offline_endpoint_preserves_children_without_missing_repairs(
+        self, coordinator, refresh_inventory
+    ):
+        """Repeated offline scans retain cached children for unavailable entities."""
+        devices = [
+            Mock(
+                identifiers={(DOMAIN, "test_entry_id_1_web-server")}, model="Container"
+            ),
+            Mock(identifiers={(DOMAIN, "test_entry_id_stack_1")}, model="Stack"),
+        ]
+        with patch("custom_components.portainer.coordinator.dr") as registry, patch(
+            "custom_components.portainer.coordinator.async_create_issue"
+        ) as create_issue, patch(
+            "custom_components.portainer.coordinator.async_delete_issue"
+        ):
+            registry.async_entries_for_config_entry.return_value = devices
+            await coordinator.async_refresh()
+            old_containers = coordinator.data["containers"]
+            old_stacks = coordinator.data["stacks"]
+            refresh_inventory["endpoints"] = [
+                {"Id": 1, "Name": "local", "Status": 2, "Snapshots": []}
+            ]
+            refresh_inventory["stacks"] = []
+            for _ in range(4):
+                await coordinator.async_refresh()
+                assert coordinator.last_update_success is True
+                assert coordinator.data["containers"] == old_containers
+                assert coordinator.data["stacks"] == old_stacks
+            create_issue.assert_not_called()
+
+    @pytest.mark.parametrize("snapshots", [[], None])
+    def test_endpoint_without_snapshot(self, coordinator, mock_api, snapshots):
+        """Fresh environments may be reachable before their first snapshot exists."""
+        mock_api.query.return_value = [
+            {"Id": 1, "Name": "local", "Status": 1, "Snapshots": snapshots}
+        ]
+        coordinator.get_endpoints()
+        assert coordinator.raw_data["endpoints"][1]["Name"] == "local"
 
     def test_coordinator_features_configuration(self, mock_hass, mock_config_entry):
         """Test coordinator features configuration."""
@@ -940,14 +1072,8 @@ class TestPortainerCoordinator:
 
         mock_api.query.side_effect = mock_query_side_effect
 
-        # Should not raise exception despite None container
-        coordinator.get_containers()
-
-        # Should only process valid containers
-        container_keys = list(coordinator.raw_data["containers"].keys())
-        assert (
-            len(container_keys) >= 1
-        )  # At least one valid container should be processed
+        with pytest.raises(UpdateFailed, match="Unable to fetch"):
+            coordinator.get_containers()
 
     def test_get_containers_with_none_inspect_data_handling(
         self, coordinator, mock_api
@@ -975,12 +1101,8 @@ class TestPortainerCoordinator:
 
         mock_api.query.side_effect = mock_query_side_effect
 
-        # Should not raise exception despite None inspect data
-        coordinator.get_containers()
-
-        # Container should be skipped if inspect fails
-        container_key = "1_test-container"
-        assert container_key not in coordinator.raw_data["containers"]
+        with pytest.raises(UpdateFailed, match="Unable to inspect container"):
+            coordinator.get_containers()
 
     def test_health_status_parsing_with_none_checks(self, coordinator, mock_api):
         """Test health status parsing with proper None checks."""
@@ -1125,18 +1247,5 @@ class TestPortainerCoordinator:
 
         mock_api.query.side_effect = [test_containers] + inspect_responses + [[]] * 5
 
-        # Should process successfully despite None values
-        coordinator.get_containers()
-
-        # Should have processed valid containers
-        container_keys = list(coordinator.raw_data["containers"].keys())
-        assert len(container_keys) >= 1
-
-        # Check that valid container has proper health status
-        valid_container_key = "test_entry_id_1_valid-container"
-        assert (
-            coordinator.raw_data["containers"][valid_container_key]["_Custom"][
-                "Health_Status"
-            ]
-            == "unavailable"
-        )
+        with pytest.raises(UpdateFailed, match="Unable to fetch"):
+            coordinator.get_containers()

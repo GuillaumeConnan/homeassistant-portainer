@@ -132,9 +132,12 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         CONF_API_KEY, default=str(user_input.get(CONF_API_KEY, ""))
                     ): str,
-                    vol.Optional(CONF_SSL, default=bool(DEFAULT_SSL)): bool,
                     vol.Optional(
-                        CONF_VERIFY_SSL, default=bool(DEFAULT_SSL_VERIFY)
+                        CONF_SSL, default=user_input.get(CONF_SSL, DEFAULT_SSL)
+                    ): bool,
+                    vol.Optional(
+                        CONF_VERIFY_SSL,
+                        default=user_input.get(CONF_VERIFY_SSL, DEFAULT_SSL_VERIFY),
                     ): bool,
                 }
             ),
@@ -208,17 +211,24 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
             containers = []
             stacks = []
             endpoints = await self.hass.async_add_executor_job(self.api.get_endpoints)
+            active_endpoint_ids = set()
             for endpoint in endpoints:
                 if (
                     str(endpoint["id"]) in self.options["endpoints"]
                     and endpoint["status"] == 1
                 ):
+                    active_endpoint_ids.add(str(endpoint["id"]))
                     containers += await self.hass.async_add_executor_job(
                         self.api.get_containers, endpoint["id"]
                     )
-                    stacks += await self.hass.async_add_executor_job(
-                        self.api.get_stacks, endpoint["id"]
+            if active_endpoint_ids:
+                stacks = [
+                    stack
+                    for stack in await self.hass.async_add_executor_job(
+                        self.api.get_stacks
                     )
+                    if str(stack["endpoint_id"]) in active_endpoint_ids
+                ]
         except Exception as exc:
             _LOGGER.exception("Failed to fetch containers/stacks: %s", exc)
             return self.async_abort(reason="item_fetch_failed")
@@ -431,17 +441,22 @@ class PortainerOptionsFlow(OptionsFlow):
                 ),
             )
             endpoints = await self.hass.async_add_executor_job(api.get_endpoints)
+            active_endpoint_ids = set()
             for endpoint in endpoints:
                 if (
                     str(endpoint["id"]) in selected_endpoints
                     and endpoint["status"] == 1
                 ):
+                    active_endpoint_ids.add(str(endpoint["id"]))
                     containers += await self.hass.async_add_executor_job(
                         api.get_containers, endpoint["id"]
                     )
-                    stacks += await self.hass.async_add_executor_job(
-                        api.get_stacks, endpoint["id"]
-                    )
+            if active_endpoint_ids:
+                stacks = [
+                    stack
+                    for stack in await self.hass.async_add_executor_job(api.get_stacks)
+                    if str(stack["endpoint_id"]) in active_endpoint_ids
+                ]
             # Show status in container name
             # Fix: Use the same format as sensor device_info
             container_options = {

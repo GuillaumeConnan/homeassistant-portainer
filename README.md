@@ -18,6 +18,9 @@ This is an independently maintained fork of the Portainer integration for Home A
 
 Monitor and control Portainer from Home Assistant.
 
+See [CHANGELOG.md](CHANGELOG.md) for upcoming changes, release notes and migration
+guidance. Published release notes are generated from the matching changelog section.
+
 Features:
 * Get Portainer-Endpoints and create a device for each endpoint
 * Get Containers per Endpoint and create a device for each container
@@ -58,7 +61,7 @@ The container device provides a central place to monitor its status and details.
      *   Compose Stack and Service names (if applicable)
      *   Health Status (if applicable)
      *   Restart Policy
-*   **Controls**: You can control the container directly from Home Assistant using the `portainer.perform_container_action` service. This allows you to `start`, `stop`, `restart`, or `kill` one or more containers, which is perfect for automations and scripts.
+*   **Controls**: You can control the container directly from Home Assistant using the `portainer.perform_container_action` service. This allows you to `start`, `stop`, `restart`, `kill`, or `remove` one or more containers, which is perfect for automations and scripts.
 
 ![Containers](https://raw.githubusercontent.com/GuillaumeConnan/homeassistant-portainer/master/docs/assets/images/ui/containers.png)
 
@@ -77,12 +80,16 @@ The stack device provides sensors to monitor its status and composition. Key inf
 The Portainer integration exposes services to allow direct control over your containers and stacks from Home Assistant automations and scripts.
 
 ## `portainer.perform_container_action`
-This service allows you to perform actions like starting, stopping, restarting, or killing one or more containers managed by your Portainer instance.
+This service allows you to start, stop, restart, kill, or remove one or more containers managed by your Portainer instance.
 
 ### Service Data Attributes:
 *   **`action`** (Required): The action to perform.
-    *   Possible values: `start`, `stop`, `restart`, `kill`
+    *   Possible values: `start`, `stop`, `restart`, `kill`, `remove`
 *   **`container_devices`** (Required): A list of Home Assistant device IDs corresponding to the containers you wish to control.
+*   **`force`** (Optional, default `false`): Force removal of running containers. Only used with `remove`.
+*   **`remove_volumes`** (Optional, default `false`): Remove associated anonymous volumes. Named volumes are not removed. Only used with `remove`.
+
+**Warning:** `remove` deletes the container, not just its Home Assistant device. Its Home Assistant device and entities are removed only after Portainer confirms successful deletion. Failed deletions are reported as service errors and leave the local device intact.
 
 ### Example Usage:
 To use this service, you'll need the Home Assistant `device_id` of the container(s) you want to control. You can find this by navigating to the device page in Home Assistant (Settings -> Devices & Services -> Devices, then select your container device) or by inspecting the device in Developer Tools -> States.
@@ -94,7 +101,7 @@ service: portainer.perform_container_action
 data:
   action: stop
   container_devices:
-    - device_id: a0e2c2f2e7b1a4d5c6f7e8d9c0b1a2c3 # Replace with your container's device_id
+    - a0e2c2f2e7b1a4d5c6f7e8d9c0b1a2c3 # Replace with your container's device_id
 ```
 
 As an alternative, you can use the UI to perform this action.
@@ -181,7 +188,7 @@ The setup process includes the following steps:
    * "Host" - Use hostname or IP and port (example: portainer.domain.tld or 192.168.0.2:9000)
    * "Access token" - Use access token from previous step
    * "Use SSL" - Connect to portainer using SSL
-   * "Verify SSL certificate" - Validate SSL certificate (must be trusted certificate)
+   * "Verify SSL certificate" - Enabled by default for new configurations; the certificate must be trusted and valid for the host. For a self-signed certificate that is not trusted by Home Assistant, explicitly disable this option only if you trust the connection. Existing configurations keep their saved setting.
 
 2. **Endpoint Selection**: Choose which Portainer endpoints to monitor
 
@@ -200,8 +207,12 @@ The integration includes intelligent repair issue management to prevent false po
 * **Consecutive Failure Tracking**: Repair issues are only created after 3 consecutive failures
 * **Automatic Recovery**: When devices are found again, failure counters are cleared and issues are automatically resolved
 * **Startup Safety**: Temporary API unavailability during container startup won't trigger repair issues
+* **Failed Refreshes**: API errors preserve the last successful inventory and mark entities unavailable; they do not count as missing resources
+* **Offline Endpoints**: Previously discovered containers and stacks are retained as unavailable while their endpoint is down
 
 This ensures you only see repair issues for genuine persistent problems, not temporary startup conditions.
+
+Container and stack selection fetches the stack inventory once per form, then filters it locally to the selected, reachable endpoints.
 
 ### Health Status Intelligence
 * **Multi-State Support**: Health sensors show `healthy`, `unhealthy`, `starting`, or `unavailable` states
@@ -264,6 +275,8 @@ When debug logging is enabled, you'll see detailed messages that can help diagno
 - **Device conflicts**: Monitor device info creation for identifier collisions.
 
 ### Getting Help
+Downloaded integration diagnostics redact the API key and password. Review diagnostics for other environment-specific details before sharing them.
+
 * Check the [GitHub Issues](https://github.com/GuillaumeConnan/homeassistant-portainer/issues) page for known issues
 * Enable debug logging and check Home Assistant logs for detailed error messages
 * Verify your Portainer instance is accessible and your access token is valid
