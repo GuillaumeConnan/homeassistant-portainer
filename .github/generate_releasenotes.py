@@ -20,129 +20,119 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
+import argparse
+from datetime import date
+from pathlib import Path
 import re
-import sys
-from github import Github
+import subprocess
+from urllib.parse import quote
 
-BODY = """
-[![Downloads for this release](https://img.shields.io/github/downloads/{repository}/{version}/total.svg)](https://github.com/{repository}/releases/{version})
-
-{changes}
-"""
-
-CHANGES = """
-## Changes
-
-{integration_changes}
-
-"""
-
-CHANGE = "- [{line}]({link}) @{author}\n"
-NOCHANGE = "_No changes in this release._"
-
-GITHUB = Github(sys.argv[2])
-REPOSITORY = os.environ.get(
-    "GITHUB_REPOSITORY", "GuillaumeConnan/homeassistant-portainer"
+VERSION_PATTERN = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
+RELEASE_HEADING = re.compile(
+    rf"## \[(?P<version>{VERSION_PATTERN})\] - (?P<date>\d{{4}}-\d{{2}}-\d{{2}})"
 )
-REPO = GITHUB.get_repo(REPOSITORY)
 
 
-def new_commits(repo, sha):
-    """Get new commits in repo."""
-    from datetime import datetime
-
-    dateformat = "%a, %d %b %Y %H:%M:%S GMT"
-    release_commit = repo.get_commit(sha)
-    since = datetime.strptime(release_commit.last_modified, dateformat)
-    commits = repo.get_commits(since=since)
-    if len(list(commits)) == 1:
-        return False
-    return reversed(list(commits)[:-1])
+def normalize_tag(tag: str) -> str:
+    """Accept a release tag with an optional Git ref and leading v."""
+    version = tag.removeprefix("refs/tags/").removeprefix("v")
+    if not re.fullmatch(VERSION_PATTERN, version):
+        raise ValueError(f"Invalid release tag: {tag}")
+    return version
 
 
-def last_integration_release(github, skip=True):
-    """Return last release."""
-    repo = github.get_repo(REPOSITORY)
-    tag_sha = None
-    data = {}
-    tags = list(repo.get_tags())
-    reg = "(v|^)?(\\d+\\.)?(\\d+\\.)?(\\*|\\d+)$"
-    if tags:
-        for tag in tags:
-            tag_name = tag.name
-            if re.match(reg, tag_name):
-                tag_sha = tag.commit.sha
-                if skip:
-                    skip = False
-                    continue
-                break
-    data["tag_name"] = tag_name
-    data["tag_sha"] = tag_sha
-    return data
+def extract_release_notes(changelog: str, tag: str) -> str:
+    """Extract exactly one dated release section, preserving its Markdown."""
+    version = normalize_tag(tag)
+    sections = []
+    current_lines = None
+    fence = None
+    for line in changelog.splitlines():
+        stripped = line.lstrip()
+        if fence:
+            if re.fullmatch(
+                re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*", stripped
+            ):
+                fence = None
+        elif stripped.startswith(("```", "~~~")):
+            fence = re.match(r"(`{3,}|~{3,})", stripped).group()
+        elif line.startswith("## "):
+            current_lines = None
+            heading = RELEASE_HEADING.fullmatch(line.strip())
+            if heading and heading["version"] == version:
+                date.fromisoformat(heading["date"])
+                current_lines = []
+                sections.append(current_lines)
+            continue
+        if current_lines is not None:
+            current_lines.append(line)
 
-
-def get_integration_commits(github, skip=True):
-    changes = ""
-    repo = github.get_repo(REPOSITORY)
-    commits = new_commits(repo, last_integration_release(github, skip)["tag_sha"])
-
-    if not commits:
-        changes = NOCHANGE
-    else:
-        for commit in commits:
-            msg = repo.get_git_commit(commit.sha).message
-            if "flake" in msg:
-                continue
-            if " workflow" in msg:
-                continue
-            if " test" in msg:
-                continue
-            if "docs" in msg:
-                continue
-            if "dev debug" in msg:
-                continue
-            if "Merge branch " in msg:
-                continue
-            if "Merge pull request " in msg:
-                continue
-            if "\n" in msg:
-                msg = msg.split("\n")[0]
-            if commit.author:
-                ath = commit.author.login
-            else:
-                ath = "Unknown"
-            changes += CHANGE.format(line=msg, link=commit.html_url, author=ath)
-
-    return changes
-
-
-# Update release notes:
-UPDATERELEASE = str(sys.argv[4])
-if UPDATERELEASE == "yes":
-    VERSION = str(sys.argv[6]).replace("refs/tags/", "")
-    RELEASE = REPO.get_release(VERSION)
-    RELEASE.update_release(
-        name=f"Portainer {VERSION}",
-        message=BODY.format(
-            version=VERSION,
-            repository=REPOSITORY,
-            changes=CHANGES.format(
-                integration_changes=get_integration_commits(GITHUB),
-            ),
-        ),
-    )
-else:
-    integration_changes = get_integration_commits(GITHUB, False)
-    if integration_changes != NOCHANGE:
-        VERSION = last_integration_release(GITHUB, False)["tag_name"]
-        VERSION = f"{VERSION[:-1]}{int(VERSION[-1])+1}"
-        REPO.create_issue(
-            title=f"Create release {VERSION}?",
-            labels=["New release"],
-            body=CHANGES.format(
-                integration_changes=integration_changes,
-            ),
+    if len(sections) != 1:
+        raise ValueError(
+            f"Expected exactly one '## [{version}] - YYYY-MM-DD' section; "
+            f"found {len(sections)}"
         )
-    else:
-        print("Not enough changes for a release.")
+    notes = "\n".join(sections[0]).strip()
+    visible_notes = re.sub(r"<!--.*?-->", "", notes, flags=re.DOTALL)
+    if not any(
+        line.strip() and not line.lstrip().startswith("#")
+        for line in visible_notes.splitlines()
+    ):
+        raise ValueError(f"Changelog section [{version}] has no release notes")
+    return notes
+
+
+def previous_tag(tag: str) -> str | None:
+    """Find the nearest ancestor version tag, excluding the release being built."""
+    normalize_tag(tag)
+    tag = tag.removeprefix("refs/tags/")
+    ref = f"refs/tags/{tag}"
+    tags = subprocess.check_output(
+        ["git", "tag", "--merged", ref], text=True
+    ).splitlines()
+    candidates = [
+        candidate
+        for candidate in tags
+        if candidate != tag and re.fullmatch(rf"v?{VERSION_PATTERN}", candidate)
+    ]
+    if not candidates:
+        return None
+    command = ["git", "describe", "--tags", "--abbrev=0"]
+    for candidate in candidates:
+        command.extend(["--match", candidate])
+    return subprocess.check_output([*command, ref], text=True).strip()
+
+
+def main() -> None:
+    """Generate a notes file locally; publishing is the workflow's responsibility."""
+    parser = argparse.ArgumentParser(
+        description="Extract release notes from CHANGELOG.md"
+    )
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--changelog", type=Path, default=Path("CHANGELOG.md"))
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--repository", help="owner/repo, to append a full changelog link"
+    )
+    parser.add_argument("--server-url", default="https://github.com")
+    args = parser.parse_args()
+    try:
+        notes = extract_release_notes(
+            args.changelog.read_text(encoding="utf-8"), args.tag
+        )
+        if args.repository:
+            tag = args.tag.removeprefix("refs/tags/")
+            previous = previous_tag(tag)
+            if previous:
+                compare = (
+                    f"{args.server_url.rstrip('/')}/{args.repository}/compare/"
+                    f"{quote(previous, safe='')}...{quote(tag, safe='')}"
+                )
+                notes += f"\n\n**Full changelog:** {compare}"
+        args.output.write_text(notes + "\n", encoding="utf-8")
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        parser.exit(1, f"Release notes generation failed: {error}\n")
+
+
+if __name__ == "__main__":
+    main()

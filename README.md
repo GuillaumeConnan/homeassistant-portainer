@@ -18,6 +18,9 @@ This is an independently maintained fork of the Portainer integration for Home A
 
 Monitor and control Portainer from Home Assistant.
 
+See [CHANGELOG.md](CHANGELOG.md) for upcoming changes, release notes and migration
+guidance. Published release notes are generated from the matching changelog section.
+
 Features:
 * Get Portainer-Endpoints and create a device for each endpoint
 * Get Containers per Endpoint and create a device for each container
