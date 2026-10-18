@@ -12,7 +12,6 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_platform as ep
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
@@ -116,29 +115,29 @@ async def async_setup_entry(
     await async_migrate_entities(hass, config_entry, entities)
 
     async_add_entities_callback(entities, update_before_add=True)
+    known_unique_ids = {entity.unique_id for entity in entities}
 
-    @callback
-    async def async_update_controller(coordinator):
+    async def async_update_controller():
         """Update entities when data changes."""
-        platform = ep.async_get_current_platform()
-        existing_unique_ids = {e.unique_id for e in platform.entities.values()}
         descriptions = _get_sensor_descriptions(coordinator)
 
         new_entities = []
         entities = await async_create_sensors(coordinator, descriptions, dispatcher)
         for entity in entities:
-            if entity.unique_id not in existing_unique_ids:
+            if entity.unique_id not in known_unique_ids:
+                known_unique_ids.add(entity.unique_id)
                 new_entities.append(entity)
 
         if new_entities:
+            await async_migrate_entities(hass, config_entry, new_entities)
             async_add_entities_callback(new_entities, update_before_add=True)
 
-    # Connect listener per config_entry
-    config_entry.async_on_unload(
-        async_dispatcher_connect(
-            hass, f"{config_entry.entry_id}_update", async_update_controller
-        )
-    )
+    @callback
+    def schedule_discovery():
+        if coordinator.last_update_success:
+            hass.async_create_task(async_update_controller())
+
+    config_entry.async_on_unload(coordinator.async_add_listener(schedule_discovery))
 
 
 async def async_migrate_entities(

@@ -11,7 +11,13 @@ from custom_components.portainer.coordinator import PortainerCoordinator
     ("container_name", "selected"),
     [("web-server", True), ("database", False)],
 )
-def test_container_selection_filters_portainer_api_results(container_name, selected):
+@pytest.mark.parametrize(
+    "selection",
+    ["test-entry_1_web-server", "Test Portainer_1_web-server", "1_web-server"],
+)
+def test_container_selection_filters_portainer_api_results(
+    container_name, selected, selection
+):
     """Only containers selected in the config entry are exposed by the coordinator."""
     hass = Mock()
     config_entry = Mock()
@@ -26,7 +32,7 @@ def test_container_selection_filters_portainer_api_results(container_name, selec
     }
     config_entry.options = {
         "endpoints": ["1"],
-        "containers": ["test-entry_1_web-server"],
+        "containers": [selection],
         "stacks": [],
     }
     api = Mock()

@@ -79,6 +79,25 @@ The stack device provides sensors to monitor its status and composition. Key inf
 # Services
 The Portainer integration exposes services to allow direct control over your containers and stacks from Home Assistant automations and scripts.
 
+Action failures (including start, stop, restart, stack actions and recreation) are
+reported as Home Assistant errors by both services and buttons. Multi-device
+services attempt all targets and report any failures rather than silently succeeding.
+
+## Changing connection settings and selections
+
+Use **Reconfigure** on the integration entry to change the host, access token or
+TLS settings. A rejected token also starts Home Assistant's reauthentication flow.
+New connection details are saved only after a successful connection test; existing
+resource selections are preserved.
+
+Integration options retain previously selected resources even when an endpoint
+is offline or a resource is temporarily absent. Historical container selection
+identifiers are accepted automatically. Device cleanup happens only when the
+last selection form is submitted, using exact identifiers and device types.
+Deselecting a resource removes only its Home Assistant device, not the container
+or stack in Portainer. Selected resources discovered after startup acquire their
+sensors and buttons automatically.
+
 ## `portainer.perform_container_action`
 This service allows you to start, stop, restart, kill, or remove one or more containers managed by your Portainer instance.
 

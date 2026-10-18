@@ -9,6 +9,9 @@ publishing, move its entries into a dated version section.
 ### Added
 
 - Add French translations for the integration configuration, options and services.
+- Add reauthentication for rejected access tokens and a reconfiguration flow for
+  changing the host, token and TLS settings. Validate the connection before saving,
+  preserve resource selections and provide translated connection errors.
 - Expose container removal, forced removal and anonymous-volume removal in the
   Home Assistant service UI. Named volumes are not removed.
 - Publish release notes directly from the matching dated section in this
@@ -29,6 +32,21 @@ publishing, move its entries into a dated version section.
 
 ### Fixed
 
+- Preserve saved endpoint, container and stack selections when resources are
+  offline or temporarily absent, including selections stored before the first
+  options update. Normalize container selection identifiers while accepting
+  historical integration-name and config-entry-ID formats.
+- Defer device cleanup until the final options form is submitted. Match exact
+  identifiers and device types so deselecting stack or endpoint `1` cannot remove
+  unrelated devices such as `10`. Deselecting resources does not delete them in
+  Portainer.
+- Publish entity unavailability immediately when a resource disappears from a
+  successful inventory refresh.
+- Discover sensors and action buttons for selected resources that appear after
+  startup, without requiring an integration reload or creating duplicate entities.
+- Report failures consistently for container and stack actions, recreation and
+  action buttons. Multi-device services attempt all targets and report any failures
+  instead of silently succeeding.
 - Stabilize the ordering of published container ports to avoid unnecessary
   Home Assistant state changes.
 - Use the registered endpoint device ID for parent-device relationships.
@@ -49,6 +67,10 @@ publishing, move its entries into a dated version section.
 
 ### Migration notes
 
+- Existing resource selections remain supported and are normalized automatically
+  when integration options are saved; no manual reselection is required.
+- Automations now receive errors for failed actions beyond container removal.
+  Review any scripts that previously relied on these failures being ignored.
 - New setups using an untrusted self-signed certificate must either use a
   certificate trusted by Home Assistant or explicitly disable certificate
   verification for a trusted connection.

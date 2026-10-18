@@ -118,6 +118,7 @@ class TestPortainerServices:
         # Mock device registry
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -156,9 +157,8 @@ class TestPortainerServices:
 
         from custom_components.portainer.services import _handle_recreate_container
 
-        await _handle_recreate_container(call)
-
-        # Should return early without error
+        with pytest.raises(HomeAssistantError):
+            await _handle_recreate_container(call)
 
     @pytest.mark.asyncio
     async def test_handle_recreate_container_device_not_found(self, mock_hass):
@@ -174,9 +174,8 @@ class TestPortainerServices:
 
             from custom_components.portainer.services import _handle_recreate_container
 
-            await _handle_recreate_container(call)
-
-            # Should handle gracefully
+            with pytest.raises(HomeAssistantError):
+                await _handle_recreate_container(call)
 
     @pytest.mark.asyncio
     async def test_handle_recreate_container_multiple_devices(
@@ -186,11 +185,13 @@ class TestPortainerServices:
         # Mock device registry entries
         device1 = Mock()
         device1.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device1.model = "Container"
         device1.config_entries = {"test_entry_id"}
         device1.id = "device_1"
 
         device2 = Mock()
         device2.identifiers = {("portainer", "test_entry_id_1_database")}
+        device2.model = "Container"
         device2.config_entries = {"test_entry_id"}
         device2.id = "device_2"
 
@@ -229,11 +230,13 @@ class TestPortainerServices:
         # Mock device registry entries for different config entries
         device1 = Mock()
         device1.identifiers = {("portainer", "entry_1_1_web-server")}
+        device1.model = "Container"
         device1.config_entries = {"entry_1"}
         device1.id = "device_1"
 
         device2 = Mock()
         device2.identifiers = {("portainer", "entry_2_2_database")}
+        device2.model = "Container"
         device2.config_entries = {"entry_2"}
         device2.id = "device_2"
 
@@ -284,6 +287,7 @@ class TestPortainerServices:
         # Mock device registry
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -335,6 +339,7 @@ class TestPortainerServices:
         # This test specifically verifies the fix for the async handling issue
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_test-container")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -388,6 +393,7 @@ class TestPortainerServices:
         with patch("custom_components.portainer.services.dr") as mock_dr:
             device_entry = Mock()
             device_entry.identifiers = {("portainer", "test_entry_id_1_nonexistent")}
+            device_entry.model = "Container"
             device_entry.config_entries = {"test_entry_id"}
             mock_device_reg = Mock()
             mock_device_reg.async_get = Mock(return_value=device_entry)
@@ -407,7 +413,8 @@ class TestPortainerServices:
                 _handle_perform_container_action,
             )
 
-            await _handle_perform_container_action(call)
+            with pytest.raises(HomeAssistantError):
+                await _handle_perform_container_action(call)
 
             # Should not call API for non-existent container
             mock_coordinator.api.query.assert_not_called()
@@ -420,6 +427,7 @@ class TestPortainerServices:
         # Mock device registry
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_stack_1")}
+        device_entry.model = "Stack"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -478,6 +486,7 @@ class TestPortainerServices:
         with patch("custom_components.portainer.services.dr") as mock_dr:
             device_entry = MagicMock()
             device_entry.identifiers = {("portainer", "invalid_stack_id")}
+            device_entry.model = "Stack"
             device_entry.config_entries = {"test_entry_id"}
 
             mock_device_reg = MagicMock()
@@ -496,7 +505,8 @@ class TestPortainerServices:
                 _handle_perform_stack_action,
             )
 
-            await _handle_perform_stack_action(call)
+            with pytest.raises(HomeAssistantError):
+                await _handle_perform_stack_action(call)
 
             # Should not call API for invalid stack ID (it should fail earlier due to format)
             mock_coordinator.api.query.assert_not_called()
@@ -509,6 +519,7 @@ class TestPortainerServices:
         with patch("custom_components.portainer.services.dr") as mock_dr:
             device_entry = MagicMock()
             device_entry.identifiers = {("portainer", "test_entry_id_stack_999")}
+            device_entry.model = "Stack"
             device_entry.config_entries = {"test_entry_id"}  # Set, not dict
 
             mock_device_reg = MagicMock()
@@ -530,7 +541,8 @@ class TestPortainerServices:
                 _handle_perform_stack_action,
             )
 
-            await _handle_perform_stack_action(call)
+            with pytest.raises(HomeAssistantError):
+                await _handle_perform_stack_action(call)
 
             # Should call API once to check stack existence
             assert mock_coordinator.api.query.call_count == 1
@@ -543,6 +555,7 @@ class TestPortainerServices:
         # Using a container device to trigger the loop
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -568,8 +581,8 @@ class TestPortainerServices:
                 _handle_perform_container_action,
             )
 
-            # This should handle the missing action (None) gracefully
-            await _handle_perform_container_action(call)
+            with pytest.raises(HomeAssistantError):
+                await _handle_perform_container_action(call)
 
     @pytest.mark.asyncio
     async def test_service_call_validation_missing_devices(self, mock_hass):
@@ -582,9 +595,8 @@ class TestPortainerServices:
             _handle_perform_container_action,
         )
 
-        await _handle_perform_container_action(call)
-
-        # Should return early without devices
+        with pytest.raises(HomeAssistantError):
+            await _handle_perform_container_action(call)
 
     @pytest.mark.asyncio
     async def test_service_error_handling_api_failure(
@@ -593,6 +605,7 @@ class TestPortainerServices:
         """Test service error handling with API failure."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -619,12 +632,12 @@ class TestPortainerServices:
             call.data = {ATTR_ACTION: "start", ATTR_CONTAINER_DEVICES: ["device_1"]}
             call.hass = mock_hass
 
-            # Should not raise exception
             from custom_components.portainer.services import (
                 _handle_perform_container_action,
             )
 
-            await _handle_perform_container_action(call)
+            with pytest.raises(HomeAssistantError):
+                await _handle_perform_container_action(call)
 
     @pytest.mark.asyncio
     async def test_service_call_with_default_pull_image(
@@ -633,6 +646,7 @@ class TestPortainerServices:
         """Test service call with default pull_image value."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -665,6 +679,7 @@ class TestPortainerServices:
         """Test service call with explicit pull_image false."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = set(["test_entry_id"])
         device_entry.id = "device_1"
 
@@ -718,6 +733,7 @@ class TestPortainerServices:
         # Test with malformed identifier
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "malformed_identifier")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -740,7 +756,8 @@ class TestPortainerServices:
                 _handle_perform_container_action,
             )
 
-            await _handle_perform_container_action(call)
+            with pytest.raises(HomeAssistantError):
+                await _handle_perform_container_action(call)
 
             # Should not call API for malformed identifier that doesn't split correctly or find container
             mock_coordinator.api.query.assert_not_called()
@@ -751,6 +768,7 @@ class TestPortainerServices:
         # Device from different domain
         device_entry = Mock()
         device_entry.identifiers = {("other_domain", "device_1")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"other_entry"}
         device_entry.id = "device_1"
 
@@ -769,15 +787,15 @@ class TestPortainerServices:
 
             from custom_components.portainer.services import _handle_recreate_container
 
-            await _handle_recreate_container(call)
-
-            # Should skip devices from other domains without error
+            with pytest.raises(HomeAssistantError):
+                await _handle_recreate_container(call)
 
     @pytest.mark.asyncio
     async def test_service_call_logging(self, mock_hass, mock_coordinator):
         """Test service call logging."""
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -828,6 +846,7 @@ class TestPortainerServices:
         """Test service call error logging."""
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -867,7 +886,8 @@ class TestPortainerServices:
                         _handle_perform_container_action,
                     )
 
-                    await _handle_perform_container_action(call)
+                    with pytest.raises(HomeAssistantError):
+                        await _handle_perform_container_action(call)
 
                     # Should log error
                     mock_logger.error.assert_called()
@@ -882,12 +902,105 @@ class TestPortainerServices:
         assert ATTR_STACK_DEVICES == "stack_devices"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("action", ["start", "stop", "restart", "kill", "remove"])
+    @pytest.mark.parametrize("api_error", [401, 409, 500, "no_response"])
+    async def test_all_container_actions_raise_on_api_error(
+        self, mock_hass, mock_coordinator, action, api_error
+    ):
+        """All actions report failures, not only deletion."""
+        from custom_components.portainer.services import (
+            _handle_perform_container_action,
+        )
+
+        device = Mock(
+            model="Container",
+            config_entries={"entry"},
+            identifiers={(DOMAIN, "entry_1_web")},
+        )
+        mock_coordinator.api.error = api_error
+        mock_coordinator.get_specific_container.return_value = {"Id": "abc"}
+        mock_hass.data[DOMAIN]["entry"] = {"coordinator": mock_coordinator}
+        with patch("custom_components.portainer.services.dr") as registry:
+            registry.async_get.return_value.async_get.return_value = device
+            with pytest.raises(HomeAssistantError, match=str(api_error)):
+                await _handle_perform_container_action(
+                    Mock(
+                        hass=mock_hass,
+                        data={ATTR_ACTION: action, ATTR_CONTAINER_DEVICES: ["device"]},
+                    )
+                )
+            registry.async_get.return_value.async_remove_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("action", ["start", "stop"])
+    async def test_stack_action_rejection_is_raised(
+        self, mock_hass, mock_coordinator, action
+    ):
+        """An empty action response is not sufficient evidence of success."""
+        from custom_components.portainer.services import _handle_perform_stack_action
+
+        device = Mock(
+            model="Stack",
+            config_entries={"entry"},
+            identifiers={(DOMAIN, "entry_stack_1")},
+        )
+
+        def query(path, *args):
+            if path == "stacks/1":
+                return {"EndpointId": 1}
+            mock_coordinator.api.error = 500
+            return None
+
+        mock_coordinator.api.query.side_effect = query
+        mock_hass.data[DOMAIN]["entry"] = {"coordinator": mock_coordinator}
+        with patch("custom_components.portainer.services.dr") as registry:
+            registry.async_get.return_value.async_get.return_value = device
+            with pytest.raises(HomeAssistantError, match="500"):
+                await _handle_perform_stack_action(
+                    Mock(
+                        hass=mock_hass,
+                        data={ATTR_ACTION: action, ATTR_STACK_DEVICES: ["device"]},
+                    )
+                )
+
+    @pytest.mark.asyncio
+    async def test_batch_recreation_attempts_every_target_and_reports_failure(
+        self, mock_hass, mock_coordinator
+    ):
+        """One failure does not prevent the remaining batch targets being attempted."""
+        from custom_components.portainer.services import _handle_recreate_container
+
+        devices = [
+            Mock(
+                model="Container",
+                config_entries={"entry"},
+                identifiers={(DOMAIN, f"entry_1_{name}")},
+            )
+            for name in ("web", "database")
+        ]
+        mock_coordinator.async_recreate_container.side_effect = [False, True]
+        mock_coordinator.api.error = "no_response"
+        mock_hass.data[DOMAIN]["entry"] = {"coordinator": mock_coordinator}
+        with patch("custom_components.portainer.services.dr") as registry:
+            registry.async_get.return_value.async_get.side_effect = devices
+            with pytest.raises(HomeAssistantError, match="no_response"):
+                await _handle_recreate_container(
+                    Mock(
+                        hass=mock_hass,
+                        data={ATTR_CONTAINER_DEVICES: ["web", "database"]},
+                    )
+                )
+        assert mock_coordinator.async_recreate_container.await_count == 2
+        mock_coordinator.async_request_refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_container_action_different_actions(
         self, mock_hass, mock_coordinator
     ):
         """Test container actions with different action types."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = set(["test_entry_id"])
         device_entry.id = "device_1"
 
@@ -940,6 +1053,7 @@ class TestPortainerServices:
         """Test stack actions with different action types."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_stack_1")}
+        device_entry.model = "Stack"
         device_entry.config_entries = set(["test_entry_id"])
         device_entry.id = "device_1"
 
@@ -999,13 +1113,7 @@ class TestPortainerServices:
 
             from custom_components.portainer.services import _handle_recreate_container
 
-            # This will raise AttributeError because of dr.async_get(hass).async_get(device_id)
-            # where dr.async_get(hass) is None.
-            # In a real HA environment, dr.async_get(hass) should never be None.
-            # We just need to make sure the test doesn't crash unexpectedly if it's supposed to handle it.
-            # Actually, the code DOES: device_reg = dr.async_get(hass) then device_reg.async_get(device_id)
-            # If dr.async_get(hass) is None, it fails.
-            with pytest.raises(AttributeError):
+            with pytest.raises(HomeAssistantError):
                 await _handle_recreate_container(call)
 
     @pytest.mark.asyncio
@@ -1013,6 +1121,7 @@ class TestPortainerServices:
         """Test handling when coordinator not found in hass data."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"missing_entry"}
         device_entry.id = "device_1"
 
@@ -1033,7 +1142,8 @@ class TestPortainerServices:
                     _handle_recreate_container,
                 )
 
-                await _handle_recreate_container(call)
+                with pytest.raises(HomeAssistantError):
+                    await _handle_recreate_container(call)
 
                 # Should log error for missing coordinator
                 mock_logger.error.assert_called_once()
@@ -1046,6 +1156,7 @@ class TestPortainerServices:
         # Mock device registry
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -1112,6 +1223,7 @@ class TestPortainerServices:
             identifiers={("portainer", "test_entry_id_1_web-server")},
             config_entries={"test_entry_id"},
         )
+        device.model = "Container"
         mock_coordinator.get_specific_container.return_value = {
             "Id": "abc",
             "Name": "web-server",
@@ -1147,6 +1259,7 @@ class TestPortainerServices:
         """Test container removal via service with force and remove_volumes options."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_database")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -1210,6 +1323,7 @@ class TestPortainerServices:
         # Mock device registry
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -1280,6 +1394,7 @@ class TestPortainerServices:
         """Test that container removal handles device removal failure gracefully."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -1341,6 +1456,7 @@ class TestPortainerServices:
         """Test that container removal handles entity removal failure gracefully."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -1409,11 +1525,13 @@ class TestPortainerServices:
         # Mock device registry entries
         device1 = MagicMock()
         device1.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device1.model = "Container"
         device1.config_entries = {"test_entry_id"}
         device1.id = "device_1"
 
         device2 = MagicMock()
         device2.identifiers = {("portainer", "test_entry_id_1_database")}
+        device2.model = "Container"
         device2.config_entries = {"test_entry_id"}
         device2.id = "device_2"
 
@@ -1484,6 +1602,7 @@ class TestPortainerServices:
         """Test that container removal works when device has no entities."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 
@@ -1540,6 +1659,7 @@ class TestPortainerServices:
         """Test that non-remove actions don't trigger device removal."""
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
+        device_entry.model = "Container"
         device_entry.config_entries = {"test_entry_id"}
         device_entry.id = "device_1"
 

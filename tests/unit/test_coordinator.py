@@ -17,6 +17,7 @@ from custom_components.portainer.const import (
     DEFAULT_FEATURE_RESTART_POLICY,
 )
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from tests.fixtures.api_responses import (
     get_endpoints_response,
     get_containers_response,
@@ -211,6 +212,20 @@ class TestPortainerCoordinator:
         ):
             with pytest.raises(UpdateFailed):
                 await coordinator._async_update_data()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", [401, 403])
+    async def test_rejected_token_triggers_reauthentication(
+        self, coordinator, mock_api, status
+    ):
+        """A revoked token starts reauth and preserves the last good snapshot."""
+        previous_data = coordinator.raw_data
+        mock_api.error = status
+        mock_api.query.return_value = None
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coordinator._async_update_data()
+        assert coordinator.raw_data is previous_data
+        assert not coordinator.lock.locked()
 
     def test_get_endpoints_success(self, coordinator, mock_api):
         """Test successful get endpoints."""

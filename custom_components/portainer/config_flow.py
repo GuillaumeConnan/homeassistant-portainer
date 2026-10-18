@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from logging import getLogger
-from typing import Any, Optional
+from typing import Any
 
 import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
@@ -16,7 +16,6 @@ from homeassistant.const import (
     CONF_SSL,
     CONF_VERIFY_SSL,
 )
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.helpers import entity_registry as er
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
@@ -38,8 +37,14 @@ from .const import (
 )
 
 from .api import PortainerAPI
+from .helper import normalize_container_selection
 
 _LOGGER = getLogger(__name__)
+
+
+def _connection_error(error) -> str:
+    """Map API failures to translated form errors."""
+    return "invalid_auth" if str(error) in ("401", "403") else "cannot_connect"
 
 
 # ---------------------------
@@ -91,7 +96,7 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
                     self.api.connection_test
                 )
                 if not conn:
-                    errors[CONF_HOST] = errorcode
+                    errors["base"] = _connection_error(errorcode)
                     _LOGGER.error("Portainer connection error (%s)", errorcode)
 
             # Save instance and proceed if no errors
@@ -113,34 +118,81 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> FlowResult:
+        """Replace revoked credentials without changing resource selections."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None) -> FlowResult:
+        """Validate replacement credentials before updating the existing entry."""
+        return await self._async_step_connection("reauth_confirm", user_input)
+
+    async def async_step_reconfigure(self, user_input=None) -> FlowResult:
+        """Allow changing the host, token and TLS settings."""
+        return await self._async_step_connection("reconfigure", user_input)
+
+    async def _async_step_connection(self, step_id, user_input) -> FlowResult:
+        entry = (
+            self._get_reauth_entry()
+            if step_id == "reauth_confirm"
+            else self._get_reconfigure_entry()
+        )
+        errors = {}
+        if user_input is not None:
+            api = await self.hass.async_add_executor_job(
+                PortainerAPI,
+                self.hass,
+                user_input[CONF_HOST],
+                user_input[CONF_API_KEY],
+                user_input[CONF_SSL],
+                user_input[CONF_VERIFY_SSL],
+            )
+            connected, error = await self.hass.async_add_executor_job(
+                api.connection_test
+            )
+            if connected:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates=user_input
+                )
+            errors["base"] = _connection_error(error)
+        return self._show_config_form(
+            user_input if user_input is not None else entry.data,
+            errors,
+            step_id=step_id,
+        )
+
     def _show_config_form(
-        self, user_input: dict[str, Any] | None, errors: dict[str, Any] | None = None
+        self,
+        user_input: dict[str, Any] | None,
+        errors: dict[str, Any] | None = None,
+        *,
+        step_id: str = "user",
     ) -> FlowResult:
         """Show the configuration form."""
         user_input = user_input or {}
+        schema = {
+            vol.Required(
+                CONF_NAME,
+                default=str(user_input.get(CONF_NAME, DEFAULT_DEVICE_NAME)),
+            ): str,
+            vol.Required(
+                CONF_HOST, default=str(user_input.get(CONF_HOST, DEFAULT_HOST))
+            ): str,
+            vol.Required(
+                CONF_API_KEY, default=str(user_input.get(CONF_API_KEY, ""))
+            ): str,
+            vol.Optional(CONF_SSL, default=user_input.get(CONF_SSL, DEFAULT_SSL)): bool,
+            vol.Optional(
+                CONF_VERIFY_SSL,
+                default=user_input.get(CONF_VERIFY_SSL, DEFAULT_SSL_VERIFY),
+            ): bool,
+        }
+        if step_id != "user":
+            schema = {
+                key: value for key, value in schema.items() if key.schema != CONF_NAME
+            }
         return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_NAME,
-                        default=str(user_input.get(CONF_NAME, DEFAULT_DEVICE_NAME)),
-                    ): str,
-                    vol.Required(
-                        CONF_HOST, default=str(user_input.get(CONF_HOST, DEFAULT_HOST))
-                    ): str,
-                    vol.Required(
-                        CONF_API_KEY, default=str(user_input.get(CONF_API_KEY, ""))
-                    ): str,
-                    vol.Optional(
-                        CONF_SSL, default=user_input.get(CONF_SSL, DEFAULT_SSL)
-                    ): bool,
-                    vol.Optional(
-                        CONF_VERIFY_SSL,
-                        default=user_input.get(CONF_VERIFY_SSL, DEFAULT_SSL_VERIFY),
-                    ): bool,
-                }
-            ),
+            step_id=step_id,
+            data_schema=vol.Schema(schema),
             errors=errors,
         )
 
@@ -162,8 +214,11 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
             endpoints = await self.hass.async_add_executor_job(self.api.get_endpoints)
         except Exception as exc:
             _LOGGER.error("Failed to fetch endpoints: %s", exc)
-            errors["base"] = "endpoint_fetch_failed"
-            endpoints = []
+            return self.async_show_form(
+                step_id="endpoints",
+                data_schema=vol.Schema({}),
+                errors={"base": "endpoint_fetch_failed"},
+            )
 
         endpoint_options = {str(ep["id"]): ep["name"] for ep in endpoints}
         if not endpoint_options:
@@ -234,9 +289,8 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="item_fetch_failed")
 
         # Show status in container name
-        # Use the config name as a temporary identifier - coordinator will handle the mapping
         container_options = {
-            f"{self.options[CONF_NAME]}_{c['endpoint_id']}_{c['name']}": f"{c['name']} [{c['status']}]"
+            f"{c['endpoint_id']}_{c['name']}": f"{c['name']} [{c['status']}]"
             for c in containers
         }
         _LOGGER.debug("Config flow - Created container options: %s", container_options)
@@ -251,6 +305,12 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
             schema_dict[vol.Optional("stacks", default=[])] = cv.multi_select(
                 stack_options
             )
+        schema_dict[
+            vol.Optional(
+                CONF_FEATURE_USE_ACTION_BUTTONS,
+                default=DEFAULT_FEATURE_USE_ACTION_BUTTONS,
+            )
+        ] = bool
         return self.async_show_form(
             step_id="select_items",
             data_schema=vol.Schema(schema_dict),
@@ -269,73 +329,40 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
 class PortainerOptionsFlow(OptionsFlow):
     """Handle options flow for Portainer integration, including endpoint/container/stack selection."""
 
-    def __init__(self):
-        """Initialize the Portainer options flow."""
+    def _current_options(self):
+        return {**self.config_entry.data, **self.config_entry.options}
+
+    def _normalize_container(self, identifier):
+        return normalize_container_selection(
+            str(identifier),
+            self.config_entry.entry_id,
+            self.config_entry.data.get(CONF_NAME, ""),
+        )
+
+    def _api(self):
+        data = self.config_entry.data
+        return PortainerAPI(
+            self.hass,
+            data[CONF_HOST],
+            data[CONF_API_KEY],
+            data[CONF_SSL],
+            data[CONF_VERIFY_SSL],
+        )
 
     async def async_step_init(self, user_input=None):
-        """Initial step: select endpoints."""
+        """Stage endpoint choices without modifying the registries."""
+        errors = {}
         if user_input is not None:
-            # Get current and new endpoint selections
-            current_endpoints = set(self.config_entry.options.get("endpoints", []))
-            new_endpoints = set(user_input.get("endpoints", []))
+            if user_input.get("endpoints"):
+                self.options = dict(self.config_entry.options)
+                self.options["endpoints"] = [str(e) for e in user_input["endpoints"]]
+                return await self.async_step_select_items()
+            errors["base"] = "no_endpoints_selected"
 
-            # Determine which endpoints to remove
-            removed_endpoints = current_endpoints - new_endpoints
-
-            # Remove endpoint devices and their associated container/stack devices
-            device_registry = dr.async_get(self.hass)
-
-            # Get all devices for this config entry before making changes
-            all_devices = dr.async_entries_for_config_entry(
-                device_registry, self.config_entry.entry_id
-            )
-
-            for endpoint_id in removed_endpoints:
-                # Remove the endpoint device itself (use correct identifier format)
-                endpoint_device = None
-                for device in all_devices:
-                    if device.model == "Endpoint" and any(
-                        f"{endpoint_id}_" in str(identifier)
-                        for identifier in device.identifiers
-                    ):
-                        endpoint_device = device
-                        break
-
-                if endpoint_device:
-                    device_registry.async_remove_device(endpoint_device.id)
-                    _LOGGER.debug(f"Removed endpoint device: {endpoint_device.id}")
-
-            self.options = dict(self.config_entry.options)
-            self.options["endpoints"] = user_input["endpoints"]
-            self.selected_endpoints = user_input["endpoints"]
-            return await self.async_step_select_items()
-
-        # Fetch endpoints from Portainer API
-        api = PortainerAPI(
-            self.hass,
-            self.config_entry.data[CONF_HOST],
-            self.config_entry.data[CONF_API_KEY],
-            self.config_entry.data[CONF_SSL],
-            self.config_entry.data[CONF_VERIFY_SSL],
-        )
+        current = [str(e) for e in self._current_options().get("endpoints", [])]
         try:
-            endpoints = await self.hass.async_add_executor_job(api.get_endpoints)
-            endpoint_options = {str(ep["id"]): ep["name"] for ep in endpoints}
-            current = self.config_entry.options.get(
-                "endpoints", self.config_entry.data.get("endpoints", [])
-            )
-            return self.async_show_form(
-                step_id="init",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required("endpoints", default=current): cv.multi_select(
-                            endpoint_options
-                        )
-                    }
-                ),
-                description_placeholders={
-                    "endpoints": ", ".join(endpoint_options.values())
-                },
+            endpoints = await self.hass.async_add_executor_job(
+                self._api().get_endpoints
             )
         except Exception as exc:
             _LOGGER.error("Failed to fetch endpoints: %s", exc)
@@ -344,102 +371,105 @@ class PortainerOptionsFlow(OptionsFlow):
                 data_schema=vol.Schema({}),
                 errors={"base": "endpoint_fetch_failed"},
             )
+        endpoint_options = {str(ep["id"]): ep["name"] for ep in endpoints}
+        for endpoint_id in current:
+            endpoint_options.setdefault(endpoint_id, endpoint_id)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("endpoints", default=current): cv.multi_select(
+                        endpoint_options
+                    )
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "endpoints": ", ".join(endpoint_options.values())
+            },
+        )
+
+    def _remove_deselected_devices(self, new_options):
+        """Remove only exact, typed identifiers after the final submission."""
+        current = self._current_options()
+        entry_id = self.config_entry.entry_id
+        removed_endpoints = set(map(str, current.get("endpoints", []))) - set(
+            new_options["endpoints"]
+        )
+        removed_containers = {
+            self._normalize_container(cid) for cid in current.get("containers", [])
+        } - set(new_options["containers"])
+        removed_stacks = set(map(str, current.get("stacks", []))) - set(
+            new_options["stacks"]
+        )
+        registry = dr.async_get(self.hass)
+        entities = er.async_get(self.hass)
+        devices = dr.async_entries_for_config_entry(registry, entry_id)
+        identifiers = {
+            "Endpoint": {f"{eid}_{entry_id}" for eid in removed_endpoints},
+            "Container": {f"{entry_id}_{cid}" for cid in removed_containers},
+            "Stack": {f"{entry_id}_stack_{sid}" for sid in removed_stacks},
+        }
+        removed_parents = {
+            device.id
+            for device in devices
+            if device.model == "Endpoint"
+            and any(
+                (DOMAIN, identifier) in device.identifiers
+                for identifier in identifiers["Endpoint"]
+            )
+        }
+        for device in devices:
+            if device.model not in identifiers or not any(
+                domain == DOMAIN for domain, _ in device.identifiers
+            ):
+                continue
+            if device.via_device_id not in removed_parents and not any(
+                (DOMAIN, identifier) in device.identifiers
+                for identifier in identifiers[device.model]
+            ):
+                continue
+            for entity in er.async_entries_for_device(
+                entities, device.id, include_disabled_entities=True
+            ):
+                if entity.config_entry_id == entry_id:
+                    entities.async_remove(entity.entity_id)
+            if device.config_entries == {entry_id}:
+                registry.async_remove_device(device.id)
+            else:
+                registry.async_update_device(device.id, remove_config_entry_id=entry_id)
 
     async def async_step_select_items(self, user_input=None):
-        """Step to select containers and stacks for selected endpoints."""
+        """Keep saved resources selectable even when inventory is unavailable."""
+        current = self._current_options()
+        options = getattr(self, "options", dict(self.config_entry.options))
+        selected_endpoints = set(
+            map(str, options.get("endpoints", current.get("endpoints", [])))
+        )
         if user_input is not None:
-            # Get current selections
-            current_containers = set(self.config_entry.options.get("containers", []))
-            current_stacks = set(self.config_entry.options.get("stacks", []))
-
-            # Get new selections
-            new_containers = set(user_input.get("containers", []))
-            new_stacks = set(user_input.get("stacks", []))
-
-            # Determine which devices to remove
-            removed_containers = current_containers - new_containers
-            removed_stacks = current_stacks - new_stacks
-
-            # Remove devices from the registry
-            device_registry = dr.async_get(self.hass)
-
-            def _device_belongs_to_removed_items(
-                device, removed_containers, removed_stacks
-            ):
-                """Check if device belongs to removed containers or stacks."""
-                for identifier in device.identifiers:
-                    if identifier[0] == DOMAIN:
-                        device_id = str(identifier[1])
-
-                        # Check if this device belongs to a removed container
-                        for removed_container in removed_containers:
-                            if removed_container in device_id:
-                                return True, "Container"
-
-                        # Check if this device belongs to a removed stack
-                        for removed_stack in removed_stacks:
-                            if (
-                                f"stack_{removed_stack}" in device_id
-                                or removed_stack in device_id
-                            ):
-                                return True, "Stack"
-
-                return False, None
-
-            entity_registry = er.async_get(self.hass)  # Get the entity registry
-
-            # Iterate and remove container and stack devices
-            devices_to_remove = []
-            for device in dr.async_entries_for_config_entry(
-                device_registry, self.config_entry.entry_id
-            ):
-                belongs_to_removed, device_type = _device_belongs_to_removed_items(
-                    device, removed_containers, removed_stacks
+            options["endpoints"] = sorted(selected_endpoints)
+            options["containers"] = list(
+                dict.fromkeys(
+                    self._normalize_container(cid)
+                    for cid in user_input.get("containers", [])
+                    if self._normalize_container(cid).split("_", 1)[0]
+                    in selected_endpoints
                 )
-                if belongs_to_removed:
-                    devices_to_remove.append((device, device_type))
-
-            # Remove the devices and their entities
-            for device, device_type in devices_to_remove:
-                device_registry.async_remove_device(device.id)
-                _LOGGER.debug(f"Removed {device_type.lower()} device: {device.id}")
-
-                # Remove all entities for this device
-                for entity in er.async_entries_for_device(
-                    entity_registry, device.id, include_disabled_entities=True
-                ):
-                    entity_registry.async_remove(entity.entity_id)
-
-            self.options["containers"] = user_input.get("containers", [])
-            self.options["stacks"] = user_input.get("stacks", [])
-            self.options[CONF_FEATURE_USE_ACTION_BUTTONS] = user_input.get(
-                CONF_FEATURE_USE_ACTION_BUTTONS, True
             )
-
-            # Set default feature values
-            self.options[CONF_FEATURE_HEALTH_CHECK] = DEFAULT_FEATURE_HEALTH_CHECK
-            self.options[CONF_FEATURE_RESTART_POLICY] = DEFAULT_FEATURE_RESTART_POLICY
-
-            return self.async_create_entry(title="", data=self.options)
-
-        # Fetch containers and stacks for selected endpoints
-        try:
-            api = PortainerAPI(
-                self.hass,
-                self.config_entry.data[CONF_HOST],
-                self.config_entry.data[CONF_API_KEY],
-                self.config_entry.data[CONF_SSL],
-                self.config_entry.data[CONF_VERIFY_SSL],
-            )
-            containers = []
-            stacks = []
-            selected_endpoints = getattr(
-                self,
-                "selected_endpoints",
-                self.config_entry.options.get(
-                    "endpoints", self.config_entry.data.get("endpoints", [])
+            options["stacks"] = [str(sid) for sid in user_input.get("stacks", [])]
+            options[CONF_FEATURE_USE_ACTION_BUTTONS] = user_input.get(
+                CONF_FEATURE_USE_ACTION_BUTTONS,
+                current.get(
+                    CONF_FEATURE_USE_ACTION_BUTTONS, DEFAULT_FEATURE_USE_ACTION_BUTTONS
                 ),
             )
+            self._remove_deselected_devices(options)
+            return self.async_create_entry(title="", data=options)
+
+        try:
+            api = self._api()
+            containers = []
+            stacks = []
             endpoints = await self.hass.async_add_executor_job(api.get_endpoints)
             active_endpoint_ids = set()
             for endpoint in endpoints:
@@ -452,53 +482,90 @@ class PortainerOptionsFlow(OptionsFlow):
                         api.get_containers, endpoint["id"]
                     )
             if active_endpoint_ids:
-                stacks = [
-                    stack
-                    for stack in await self.hass.async_add_executor_job(api.get_stacks)
-                    if str(stack["endpoint_id"]) in active_endpoint_ids
-                ]
-            # Show status in container name
-            # Fix: Use the same format as sensor device_info
-            container_options = {
-                f"{self.config_entry.entry_id}_{c['endpoint_id']}_{c['name']}": f"{c['name']} [{c['status']}]"
-                for c in containers
-            }
-            stack_options = {str(s["id"]): s["name"] for s in stacks}
-
-            valid_container_ids = set(container_options.keys())
-            valid_stack_ids = set(stack_options.keys())
-
-            current_containers = [
-                cid
-                for cid in self.config_entry.options.get(
-                    "containers", self.config_entry.data.get("containers", [])
-                )
-                if cid in valid_container_ids
-            ]
-            current_stacks = [
-                sid
-                for sid in self.config_entry.options.get(
-                    "stacks", self.config_entry.data.get("stacks", [])
-                )
-                if sid in valid_stack_ids
-            ]
-
-            schema_dict = {
-                vol.Optional("containers", default=current_containers): cv.multi_select(
-                    container_options
-                ),
-                vol.Optional("stacks", default=current_stacks): cv.multi_select(
-                    stack_options
-                ),
-            }
-            return self.async_show_form(
-                step_id="select_items",
-                data_schema=vol.Schema(schema_dict),
-                description_placeholders={
-                    "containers": ", ".join(container_options.values()),
-                    "stacks": ", ".join(stack_options.values()),
-                },
-            )
+                stacks = await self.hass.async_add_executor_job(api.get_stacks)
         except Exception as exc:
             _LOGGER.exception("Failed to fetch containers/stacks: %s", exc)
             return self.async_abort(reason="item_fetch_failed")
+
+        container_options = {
+            f"{c['endpoint_id']}_{c['name']}": f"{c['name']} [{c['status']}]"
+            for c in containers
+        }
+        stack_options = {
+            str(s["id"]): s["name"]
+            for s in stacks
+            if str(s["endpoint_id"]) in active_endpoint_ids
+        }
+        current_containers = list(
+            dict.fromkeys(
+                self._normalize_container(cid)
+                for cid in current.get("containers", [])
+                if self._normalize_container(cid).split("_", 1)[0] in selected_endpoints
+            )
+        )
+        stack_endpoints = {str(s["id"]): str(s["endpoint_id"]) for s in stacks}
+        coordinator = (
+            self.hass.data.get(DOMAIN, {})
+            .get(self.config_entry.entry_id, {})
+            .get("coordinator")
+        )
+        if coordinator is not None:
+            stack_endpoints.update(
+                {
+                    str(sid): str(stack["EndpointId"])
+                    for sid, stack in coordinator.data.get("stacks", {}).items()
+                }
+            )
+        registry = dr.async_get(self.hass)
+        devices = dr.async_entries_for_config_entry(
+            registry, self.config_entry.entry_id
+        )
+        endpoint_devices = {
+            device.id: eid
+            for device in devices
+            for eid in current.get("endpoints", [])
+            if device.model == "Endpoint"
+            and (DOMAIN, f"{eid}_{self.config_entry.entry_id}") in device.identifiers
+        }
+        for device in devices:
+            if device.model == "Stack" and device.via_device_id in endpoint_devices:
+                for domain, identifier in device.identifiers:
+                    prefix = f"{self.config_entry.entry_id}_stack_"
+                    if domain == DOMAIN and identifier.startswith(prefix):
+                        stack_endpoints[identifier[len(prefix) :]] = str(
+                            endpoint_devices[device.via_device_id]
+                        )
+        current_stacks = [
+            str(sid)
+            for sid in current.get("stacks", [])
+            if str(sid) not in stack_endpoints
+            or stack_endpoints[str(sid)] in selected_endpoints
+        ]
+        for cid in current_containers:
+            container_options.setdefault(cid, cid)
+        for sid in current_stacks:
+            stack_options.setdefault(sid, sid)
+        return self.async_show_form(
+            step_id="select_items",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        "containers", default=current_containers
+                    ): cv.multi_select(container_options),
+                    vol.Optional("stacks", default=current_stacks): cv.multi_select(
+                        stack_options
+                    ),
+                    vol.Optional(
+                        CONF_FEATURE_USE_ACTION_BUTTONS,
+                        default=current.get(
+                            CONF_FEATURE_USE_ACTION_BUTTONS,
+                            DEFAULT_FEATURE_USE_ACTION_BUTTONS,
+                        ),
+                    ): bool,
+                }
+            ),
+            description_placeholders={
+                "containers": ", ".join(container_options.values()),
+                "stacks": ", ".join(stack_options.values()),
+            },
+        )

@@ -7,6 +7,7 @@ from datetime import timedelta
 from logging import getLogger
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
 from homeassistant.const import (
     CONF_API_KEY,
@@ -36,6 +37,7 @@ from .const import (
 )
 from .apiparser import parse_api
 from .api import PortainerAPI
+from .helper import normalize_container_selection
 
 _LOGGER = getLogger(__name__)
 
@@ -53,6 +55,7 @@ class PortainerCoordinator(DataUpdateCoordinator):
             _LOGGER,
             name=f"{DOMAIN}_{config_entry.entry_id}",
             update_interval=timedelta(seconds=SCAN_INTERVAL),
+            config_entry=config_entry,
         )
         self.hass = hass
         self.name = config_entry.data[CONF_NAME]
@@ -194,6 +197,10 @@ class PortainerCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Created endpoint devices")
         except Exception as error:
             self.raw_data = previous_data
+            if str(self.api.error) in ("401", "403"):
+                raise ConfigEntryAuthFailed(
+                    "Portainer access token was rejected"
+                ) from error
             _LOGGER.error("Error updating Portainer data for %s: %s", self.name, error)
             raise UpdateFailed(error) from error
         finally:
@@ -396,6 +403,10 @@ class PortainerCoordinator(DataUpdateCoordinator):
     def get_containers(self) -> None:
         self.raw_data["containers"] = {}
         all_containers = {}
+        selected_containers = {
+            normalize_container_selection(cid, self.config_entry_id, self.name)
+            for cid in self.selected_containers
+        }
         for eid in self.raw_data["endpoints"]:
             if self.raw_data["endpoints"][eid]["Status"] == 1:
                 self.raw_data["containers"][eid] = {}
@@ -546,10 +557,7 @@ class PortainerCoordinator(DataUpdateCoordinator):
                         self.config_entry_id,
                     )
 
-                    if not self.selected_containers or (
-                        container_key not in self.selected_containers
-                        and config_name_key not in self.selected_containers
-                    ):
+                    if f'{eid}_{container["Name"]}' not in selected_containers:
                         _LOGGER.debug(
                             "Filtering out container %s (keys: %s, %s) - not in selected containers %s",
                             container["Name"],
@@ -795,7 +803,7 @@ class PortainerCoordinator(DataUpdateCoordinator):
     # ---------------------------
     async def async_recreate_container(
         self, endpoint_id: str, container_name: str, pull_image: bool = True
-    ) -> None:
+    ) -> bool:
         """Recreate a container after retrieving its details."""
         _LOGGER.debug(
             "Attempting to recreate container: %s on endpoint %s",
@@ -809,9 +817,11 @@ class PortainerCoordinator(DataUpdateCoordinator):
                 container_name,
                 endpoint_id,
             )
-            return
+            return False
 
         container_id = container.get("Id")
+        if not container_id:
+            return False
         _LOGGER.debug(
             "Found container %s on endpoint %s. Calling API.",
             container_name,
