@@ -1,44 +1,12 @@
 """Global test configuration and fixtures for Home Assistant Portainer integration."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import aiohttp_client
 
 from custom_components.portainer.const import DOMAIN
-
-
-@pytest.fixture
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture
-async def hass():
-    """Home Assistant fixture."""
-    hass = HomeAssistant()
-    hass.config.config_dir = "/tmp/homeassistant"
-    hass.config.latitude = 32.87336
-    hass.config.longitude = -117.22743
-    hass.config.elevation = 0
-    hass.config.time_zone = "UTC"
-    hass.config.units = "metric"
-
-    # Mock hass states
-    hass.states = MagicMock()
-    hass.states.async_set = AsyncMock()
-
-    yield hass
-
-    # Cleanup
-    await hass.async_stop()
 
 
 @pytest.fixture
@@ -57,12 +25,6 @@ def config_entry():
         source="user",
         unique_id="test-portainer",
     )
-
-
-@pytest.fixture
-async def aiohttp_client_session(aiohttp_client, hass):
-    """Create a test aiohttp client session."""
-    return await aiohttp_client(hass.http.app)
 
 
 @pytest.fixture

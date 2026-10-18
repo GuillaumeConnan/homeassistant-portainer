@@ -20,12 +20,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import os
 import re
 import sys
 from github import Github
 
 BODY = """
-[![Downloads for this release](https://img.shields.io/github/downloads/cbrosius/homeassistant-portainer/{version}/total.svg)](https://github.com/cbrosius/homeassistant-portainer/releases/{version})
+[![Downloads for this release](https://img.shields.io/github/downloads/{repository}/{version}/total.svg)](https://github.com/{repository}/releases/{version})
 
 {changes}
 """
@@ -41,6 +42,10 @@ CHANGE = "- [{line}]({link}) @{author}\n"
 NOCHANGE = "_No changes in this release._"
 
 GITHUB = Github(sys.argv[2])
+REPOSITORY = os.environ.get(
+    "GITHUB_REPOSITORY", "GuillaumeConnan/homeassistant-portainer"
+)
+REPO = GITHUB.get_repo(REPOSITORY)
 
 
 def new_commits(repo, sha):
@@ -58,7 +63,7 @@ def new_commits(repo, sha):
 
 def last_integration_release(github, skip=True):
     """Return last release."""
-    repo = github.get_repo("cbrosius/homeassistant-portainer")
+    repo = github.get_repo(REPOSITORY)
     tag_sha = None
     data = {}
     tags = list(repo.get_tags())
@@ -79,7 +84,7 @@ def last_integration_release(github, skip=True):
 
 def get_integration_commits(github, skip=True):
     changes = ""
-    repo = github.get_repo("cbrosius/homeassistant-portainer")
+    repo = github.get_repo(REPOSITORY)
     commits = new_commits(repo, last_integration_release(github, skip)["tag_sha"])
 
     if not commits:
@@ -114,7 +119,6 @@ def get_integration_commits(github, skip=True):
 
 # Update release notes:
 UPDATERELEASE = str(sys.argv[4])
-REPO = GITHUB.get_repo("cbrosius/homeassistant-portainer")
 if UPDATERELEASE == "yes":
     VERSION = str(sys.argv[6]).replace("refs/tags/", "")
     RELEASE = REPO.get_release(VERSION)
@@ -122,6 +126,7 @@ if UPDATERELEASE == "yes":
         name=f"Portainer {VERSION}",
         message=BODY.format(
             version=VERSION,
+            repository=REPOSITORY,
             changes=CHANGES.format(
                 integration_changes=get_integration_commits(GITHUB),
             ),
@@ -135,7 +140,6 @@ else:
         REPO.create_issue(
             title=f"Create release {VERSION}?",
             labels=["New release"],
-            assignee="cbrosius",
             body=CHANGES.format(
                 integration_changes=integration_changes,
             ),

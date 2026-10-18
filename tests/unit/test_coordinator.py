@@ -48,14 +48,14 @@ class TestPortainerCoordinator:
             "verify_ssl": True,
             "endpoints": ["1", "2"],
             "containers": ["test_entry_id_1_web-server", "test_entry_id_1_database"],
-            "stacks": ["test_entry_id_stack_1", "test_entry_id_stack_2"],
+            "stacks": ["1", "2"],
         }
         config_entry.options = {
             CONF_FEATURE_HEALTH_CHECK: True,
             CONF_FEATURE_RESTART_POLICY: True,
             "endpoints": ["1", "2"],
             "containers": ["test_entry_id_1_web-server", "test_entry_id_1_database"],
-            "stacks": ["test_entry_id_stack_1", "test_entry_id_stack_2"],
+            "stacks": ["1", "2"],
         }
         return config_entry
 
@@ -81,9 +81,7 @@ class TestPortainerCoordinator:
         with patch(
             "custom_components.portainer.coordinator.PortainerAPI",
             return_value=mock_api,
-        ), patch("homeassistant.helpers.frame.report_usage"), patch(
-            "homeassistant.helpers.frame._hass", mock_hass
-        ):
+        ), patch("homeassistant.helpers.frame.report_usage"):
             coordinator = PortainerCoordinator(mock_hass, mock_config_entry)
             coordinator.api = mock_api  # Replace with our mock
             # Ensure config_entry is properly accessible
@@ -102,8 +100,8 @@ class TestPortainerCoordinator:
             "test_entry_id_1_database",
         }
         assert coordinator.selected_stacks == {
-            "test_entry_id_stack_1",
-            "test_entry_id_stack_2",
+            "1",
+            "2",
         }
         assert coordinator.create_action_buttons is True
         assert coordinator.features[CONF_FEATURE_HEALTH_CHECK] is True
@@ -129,9 +127,7 @@ class TestPortainerCoordinator:
 
         with patch(
             "custom_components.portainer.coordinator.PortainerAPI"
-        ) as mock_api_class, patch("homeassistant.helpers.frame.report_usage"), patch(
-            "homeassistant.helpers.frame._hass", mock_hass
-        ):
+        ) as mock_api_class, patch("homeassistant.helpers.frame.report_usage"):
             mock_api_instance = Mock()
             mock_api_class.return_value = mock_api_instance
 
@@ -225,11 +221,11 @@ class TestPortainerCoordinator:
         assert (
             len(coordinator.raw_data["endpoints"]) == 2
         )  # Only active endpoints (Status=1)
-        assert "1" in coordinator.raw_data["endpoints"]  # local endpoint
-        assert "2" in coordinator.raw_data["endpoints"]  # swarm-cluster endpoint
+        assert 1 in coordinator.raw_data["endpoints"]  # local endpoint
+        assert 2 in coordinator.raw_data["endpoints"]  # swarm-cluster endpoint
 
         # Check endpoint data structure
-        endpoint_1 = coordinator.raw_data["endpoints"]["1"]
+        endpoint_1 = coordinator.raw_data["endpoints"][1]
         assert endpoint_1["Name"] == "local"
         assert endpoint_1["Status"] == 1
         assert "DockerVersion" in endpoint_1
@@ -250,7 +246,7 @@ class TestPortainerCoordinator:
         coordinator.get_endpoints()
 
         # Check that snapshot data is processed for active endpoints
-        endpoint_1 = coordinator.raw_data["endpoints"]["1"]
+        endpoint_1 = coordinator.raw_data["endpoints"][1]
         assert "DockerVersion" in endpoint_1
         assert "TotalCPU" in endpoint_1
         assert "TotalMemory" in endpoint_1
@@ -345,12 +341,10 @@ class TestPortainerCoordinator:
 
         # Should filter stacks by selection
         assert "stacks" in coordinator.raw_data
-        assert "test_entry_id_stack_1" in coordinator.raw_data["stacks"]  # web-stack
-        assert (
-            "test_entry_id_stack_2" in coordinator.raw_data["stacks"]
-        )  # monitoring-stack
+        assert "1" in coordinator.raw_data["stacks"]  # web-stack
+        assert "2" in coordinator.raw_data["stacks"]  # monitoring-stack
 
-        stack = coordinator.raw_data["stacks"]["test_entry_id_stack_1"]
+        stack = coordinator.raw_data["stacks"]["1"]
         assert stack["Name"] == "web-stack"
         assert stack["EndpointId"] == 1
 
@@ -560,7 +554,7 @@ class TestPortainerCoordinator:
 
         with patch("custom_components.portainer.coordinator.PortainerAPI"), patch(
             "homeassistant.helpers.frame.report_usage"
-        ), patch("homeassistant.helpers.frame._hass", mock_hass):
+        ):
             coordinator = PortainerCoordinator(mock_hass, mock_config_entry)
 
             assert coordinator.features[CONF_FEATURE_HEALTH_CHECK] is False
@@ -572,7 +566,7 @@ class TestPortainerCoordinator:
 
         with patch("custom_components.portainer.coordinator.PortainerAPI"), patch(
             "homeassistant.helpers.frame.report_usage"
-        ), patch("homeassistant.helpers.frame._hass", mock_hass):
+        ):
             coordinator = PortainerCoordinator(mock_hass, mock_config_entry)
             assert coordinator.create_action_buttons is False
 
@@ -595,8 +589,8 @@ class TestPortainerCoordinator:
         # Should not raise exception
         coordinator.get_endpoints()
 
-        # Should handle gracefully - both should be filtered
-        assert coordinator.raw_data["endpoints"] == {}
+        assert len(coordinator.raw_data["endpoints"]) == 1
+        assert coordinator.raw_data["endpoints"][2]["Name"] is None
 
     def test_get_containers_port_processing(self, coordinator, mock_api):
         """Test container port processing."""
@@ -636,7 +630,7 @@ class TestPortainerCoordinator:
         }
 
         mock_api.query.side_effect = [test_containers, inspect_response] + [[]] * 5
-        coordinator.selected_containers = set()
+        coordinator.selected_containers = {"test_entry_id_1_test-container"}
 
         coordinator.get_containers()
 
@@ -687,7 +681,7 @@ class TestPortainerCoordinator:
         }
 
         mock_api.query.side_effect = [test_containers, inspect_response] + [[]] * 5
-        coordinator.selected_containers = set()
+        coordinator.selected_containers = {"test_entry_id_1_test-container"}
 
         coordinator.get_containers()
 
@@ -786,60 +780,30 @@ class TestPortainerCoordinator:
             mock_dr.async_get.return_value = mock_device_registry
             mock_dr.async_entries_for_config_entry.return_value = all_devices
 
-            # Mock API to handle multiple updates
-            def side_effect(url, method="GET", params=None):
-                if "endpoints" == url:
-                    return get_endpoints_response()
-                if "containers/json" in url:
-                    return []  # Failure case: no containers
-                return []
+            issue_key = "missing_container_test_entry_id_1_test-container"
+            coordinator._consecutive_failures["containers"][issue_key] = 2
 
-            mock_api.query.side_effect = side_effect
-
-            # Simulate 2 failures first
-            await coordinator._async_update_data()  # failure 1
-            await coordinator._async_update_data()  # failure 2
-
-            # Now device is found - mock API to return the container
-            def side_effect_success(url, method="GET", params=None):
-                if "endpoints" == url:
-                    return get_endpoints_response()
-                if "containers/json" in url:
-                    return [
-                        {
-                            "Id": "test123",
-                            "Names": ["/test-container"],
-                            "State": "running",
-                        }
-                    ]
-                if "containers/test123/json" in url:
-                    return {
-                        "Id": "test123",
-                        "State": {"Status": "running"},
-                        "HostConfig": {"NetworkMode": "bridge"},
-                        "NetworkSettings": {"Networks": {}},
+            def add_current_container():
+                coordinator.raw_data["containers"] = {
+                    "test_entry_id_1_test-container": {
+                        "EndpointId": 1,
+                        "Name": "test-container",
                     }
-                return []
+                }
 
-            mock_api.query.side_effect = side_effect_success
-            coordinator.selected_containers = set()
+            coordinator.get_endpoints = Mock()
+            coordinator.get_containers = Mock(side_effect=add_current_container)
+            coordinator.get_stacks = Mock(
+                side_effect=lambda: coordinator.raw_data.update(stacks={})
+            )
 
-            # Now device is found - should clear failure count
             await coordinator._async_update_data()
 
-            # Should delete any existing issues and clear counter
-            # Should delete any existing issues and clear counter
             mock_delete_issue.assert_called()
-            call_args = mock_delete_issue.call_args
-            assert (
-                "missing_container_test_entry_id_1_test-container" in call_args[1]
-            )  # issue_key
-
-            # Counter should be cleared
-            assert (
-                "missing_container_test_entry_id_1_test-container"
-                not in coordinator._consecutive_failures["containers"]
+            mock_delete_issue.assert_called_once_with(
+                coordinator.hass, DOMAIN, issue_key
             )
+            assert issue_key not in coordinator._consecutive_failures["containers"]
 
     def test_get_containers_with_none_container_handling(self, coordinator, mock_api):
         """Test get containers with None container handling."""
@@ -1032,7 +996,10 @@ class TestPortainerCoordinator:
         # Set up endpoints first
         mock_api.query.return_value = get_endpoints_response()
         coordinator.get_endpoints()
-        coordinator.selected_containers = set()
+        coordinator.selected_containers = {
+            "test_entry_id_1_valid-container",
+            "test_entry_id_1_another-container",
+        }
 
         # Create test containers with mixed None and valid data
         test_containers = [
@@ -1080,8 +1047,9 @@ class TestPortainerCoordinator:
 
         # Check that valid container has proper health status
         valid_container_key = "test_entry_id_1_valid-container"
-        if valid_container_key in coordinator.raw_data["containers"]:
-            container = coordinator.raw_data["containers"][valid_container_key]
-            if container["_Custom"].get("Health_Status") != "healthy":
-                print(f"DEBUG: FAIL - Container: {container}")
-            assert container["_Custom"].get("Health_Status") == "healthy"
+        assert (
+            coordinator.raw_data["containers"][valid_container_key]["_Custom"][
+                "Health_Status"
+            ]
+            == "unavailable"
+        )

@@ -7,7 +7,6 @@ pytest-sugar>=0.9.7
 
 # Home Assistant test utilities
 homeassistant>=2023.1.0
-homeassistant[test]>=2023.1.0
 
 # Mock and testing utilities
 requests-mock>=1.10.0

@@ -1,154 +1,113 @@
-"""Test config flow integration with container selection and format handling."""
+"""Tests for Portainer config-flow selection and options handling."""
+
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
 
 from custom_components.portainer.config_flow import (
     PortainerConfigFlow,
     PortainerOptionsFlow,
 )
-from custom_components.portainer.const import DOMAIN
+from custom_components.portainer.const import CONF_FEATURE_USE_ACTION_BUTTONS
 
 
-class TestConfigFlowIntegration:
-    """Test config flow integration with container selection."""
+@pytest.fixture
+def mock_hass():
+    """Create a Home Assistant mock that runs executor jobs inline."""
+    hass = Mock()
 
-    @pytest.fixture
-    def mock_hass(self):
-        """Create mock Home Assistant instance."""
-        hass = AsyncMock()
-        hass.config_entries = AsyncMock()
-        hass.data = {DOMAIN: {}}
-        return hass
+    async def run_executor_job(func, *args):
+        return func(*args)
 
-    @pytest.fixture
-    def mock_api(self):
-        """Create mock Portainer API."""
-        api = Mock()
-        api.connected.return_value = True
-        api.get_endpoints.return_value = [
-            {"id": "1", "name": "local", "status": 1},
-            {"id": "2", "name": "remote", "status": 1},
-        ]
-        api.get_containers.side_effect = [
-            [  # Containers for endpoint 1
-                {
-                    "id": "1",
-                    "name": "web-server",
-                    "status": "running",
-                    "endpoint_id": "1",
-                },
-                {
-                    "id": "2",
-                    "name": "database",
-                    "status": "running",
-                    "endpoint_id": "1",
-                },
-            ],
-            [  # Containers for endpoint 2
-                {"id": "3", "name": "cache", "status": "running", "endpoint_id": "2"},
-                {"id": "4", "name": "monitor", "status": "running", "endpoint_id": "2"},
-            ],
-        ]
-        api.get_stacks.side_effect = [
-            [{"id": "1", "name": "web-stack", "endpoint_id": "1"}],
-            [{"id": "2", "name": "monitor-stack", "endpoint_id": "2"}],
-        ]
-        return api
+    hass.async_add_executor_job = AsyncMock(side_effect=run_executor_job)
+    return hass
 
-    def test_config_flow_container_options_format(self, mock_hass):
-        """Test that config flow creates container options in correct format."""
-        # Create config flow instance
-        config_flow = PortainerConfigFlow()
-        config_flow.hass = mock_hass
-        config_flow.api = Mock()
-        config_flow.options = {"name": "Test Portainer", "endpoints": ["1", "2"]}
 
-        # Mock the API responses
-        config_flow.api.get_endpoints.return_value = [
-            {"id": "1", "name": "local", "status": 1}
-        ]
-        config_flow.api.get_containers.return_value = [
-            {
-                "id": "1",
-                "name": "test-container",
-                "status": "running",
-                "endpoint_id": "1",
-            }
-        ]
-
-        # Test container options creation (this would be called internally)
-        containers = [
-            {"endpoint_id": "1", "name": "test-container", "status": "running"}
-        ]
-
-        # The format should be: config_name_endpoint_id_container_name
-        expected_format = "Test Portainer_1_test-container"
-        container_options = {
-            f"{config_flow.options['name']}_{c['endpoint_id']}_{c['name']}": f"{c['name']} [{c['status']}]"
-            for c in containers
+@pytest.mark.asyncio
+async def test_config_flow_builds_container_choices_from_selected_endpoints(mock_hass):
+    """The selection form exposes container labels from the API."""
+    flow = PortainerConfigFlow()
+    flow.hass = mock_hass
+    flow.options = {"name": "Test Portainer", "endpoints": ["1"]}
+    flow.api = Mock()
+    flow.api.get_endpoints.return_value = [
+        {"id": 1, "name": "local", "status": 1},
+        {"id": 2, "name": "remote", "status": 1},
+    ]
+    flow.api.get_containers.return_value = [
+        {
+            "id": "container-1",
+            "name": "test-container",
+            "status": "running",
+            "endpoint_id": 1,
         }
+    ]
+    flow.api.get_stacks.return_value = [
+        {"id": 3, "name": "test-stack", "endpoint_id": 1}
+    ]
 
-        assert expected_format in container_options
-        assert container_options[expected_format] == "test-container [running]"
+    with patch.object(
+        flow, "async_show_form", return_value={"type": "form"}
+    ) as show_form:
+        result = await flow.async_step_select_items()
 
-    def test_options_flow_container_options_format(self, mock_hass):
-        """Test that options flow creates container options in correct format."""
-        # Create config entry
-        config_entry = Mock()
-        config_entry.entry_id = "01K7HFNR3527W6HYGM6SFGDTG1"
-        config_entry.data = {
-            "name": "Test Portainer",
-            "host": "localhost:9000",
-            "api_key": "test_api_key",
-            "ssl": False,
-            "verify_ssl": True,
-            "endpoints": ["1"],
-        }
-        config_entry.options = {"endpoints": ["1"]}
+    assert result == {"type": "form"}
+    flow.api.get_containers.assert_called_once_with(1)
+    flow.api.get_stacks.assert_called_once_with(1)
+    assert show_form.call_args.kwargs["description_placeholders"] == {
+        "containers": "test-container [running]",
+        "stacks": "test-stack",
+    }
 
-        # Create options flow
-        options_flow = PortainerOptionsFlow()
-        options_flow.hass = mock_hass
-        options_flow.config_entry = config_entry
 
-        # Mock API
-        api = Mock()
-        api.get_endpoints.return_value = [{"id": "1", "name": "local", "status": 1}]
-        api.get_containers.return_value = [
-            {
-                "id": "1",
-                "name": "test-container",
-                "status": "running",
-                "endpoint_id": "1",
-            }
-        ]
+@pytest.mark.asyncio
+async def test_config_flow_persists_container_and_stack_selections(mock_hass):
+    """Submitted choices are stored in the config entry data."""
+    flow = PortainerConfigFlow()
+    flow.options = {"name": "Test Portainer", "endpoints": ["1"]}
+    selected = {
+        "containers": ["Test Portainer_1_test-container"],
+        "stacks": ["3"],
+        CONF_FEATURE_USE_ACTION_BUTTONS: False,
+    }
 
-        with patch(
-            "custom_components.portainer.config_flow.PortainerAPI", return_value=api
-        ):
-            # Test container options creation format
-            containers = [
-                {"endpoint_id": "1", "name": "test-container", "status": "running"}
-            ]
+    with patch.object(
+        flow, "async_create_entry", return_value={"type": "create_entry"}
+    ) as create_entry:
+        result = await flow.async_step_select_items(selected)
 
-            # Should use config entry ID format
-            expected_format = "01K7HFNR3527W6HYGM6SFGDTG1_1_test-container"
-            container_options = {
-                f"{config_entry.entry_id}_{c['endpoint_id']}_{c['name']}": f"{c['name']} [{c['status']}]"
-                for c in containers
-            }
+    assert result == {"type": "create_entry"}
+    assert flow.options["containers"] == selected["containers"]
+    assert flow.options["stacks"] == selected["stacks"]
+    assert flow.options[CONF_FEATURE_USE_ACTION_BUTTONS] is False
+    create_entry.assert_called_once_with(title="Test Portainer", data=flow.options)
 
-            assert expected_format in container_options
 
-    def test_container_selection_persistence(self, mock_hass):
-        """Test that container selections are properly persisted."""
-        # This would test that when containers are selected in the UI,
-        # they are stored in the correct format in config_entry.options
-        pass
+@pytest.mark.asyncio
+async def test_options_flow_reads_endpoint_selections(mock_hass):
+    """The options flow displays the selected endpoint choices."""
+    config_entry = Mock()
+    config_entry.data = {
+        "name": "Test Portainer",
+        "host": "localhost:9000",
+        "api_key": "test-key",
+        "ssl": False,
+        "verify_ssl": True,
+    }
+    config_entry.options = {"endpoints": ["1"]}
+    flow = PortainerOptionsFlow()
+    flow.hass = mock_hass
+    api = Mock()
+    api.get_endpoints.return_value = [{"id": 1, "name": "local", "status": 1}]
 
-    def test_backward_compatibility_with_old_format(self, mock_hass):
-        """Test that old config name format still works."""
-        # Test scenario where existing configuration uses old format
-        # and new coordinator should still handle it
-        pass
+    with patch("homeassistant.config_entries.report_usage"), patch(
+        "custom_components.portainer.config_flow.PortainerAPI", return_value=api
+    ):
+        flow.config_entry = config_entry
+        with patch.object(
+            flow, "async_show_form", return_value={"type": "form"}
+        ) as show_form:
+            result = await flow.async_step_init()
+
+    assert result == {"type": "form"}
+    assert show_form.call_args.kwargs["step_id"] == "init"

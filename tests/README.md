@@ -7,7 +7,7 @@ This directory contains the comprehensive testing framework for the Portainer Ho
 The testing framework includes:
 - **pytest** configuration for running tests
 - **tox** for multi-environment testing
-- **Home Assistant** specific test utilities and fixtures
+- **Home Assistant** fixtures and mocked integration dependencies
 - **Unit tests** for individual components
 - **Integration tests** for full workflow testing
 
@@ -20,15 +20,30 @@ tests/
 ├── README.md                   # This file
 ├── unit/                       # Unit tests
 │   ├── __init__.py
-│   └── test_api.py            # API unit tests example
+│   ├── test_api.py
+│   ├── test_apiparser.py
+│   ├── test_button.py
+│   ├── test_config_flow_integration.py
+│   ├── test_container_format_compatibility.py
+│   ├── test_container_name_extraction.py
+│   ├── test_container_performance.py
+│   ├── test_coordinator.py
+│   ├── test_entity.py
+│   ├── test_helper.py
+│   └── test_services.py
 ├── integration/               # Integration tests
 │   ├── __init__.py
-│   └── test_portainer_integration.py  # Integration tests example
-└── fixtures/                  # Test fixtures and utilities
+│   ├── test_container_entity_flow.py  # API data through coordinator selection
+│   └── test_portainer_integration.py  # Config-entry setup and unload lifecycle
+└── fixtures/                  # Reusable test data and utilities
     ├── __init__.py
-    ├── test_config.yaml       # Test configuration
-    ├── test_environment.py    # Test environment setup
-    └── test_helpers.py        # Test helper utilities
+    ├── api_responses.py
+    ├── config_fixtures.py
+    ├── data_generators.py
+    ├── entity_fixtures.py
+    ├── test_environment.py
+    ├── test_helpers.py
+    └── test_scenarios.py
 ```
 
 ## Configuration Files
@@ -43,7 +58,7 @@ Main pytest configuration with:
 ### requirements-test.txt
 Test dependencies including:
 - pytest and pytest-asyncio
-- Home Assistant test utilities
+- Home Assistant
 - Mock libraries
 - Code quality tools
 
@@ -129,32 +144,16 @@ class TestMyComponent:
 ```
 
 ### Integration Tests
-Integration tests should be placed in `tests/integration/` and test full workflows:
-
-```python
-import pytest
-from tests.fixtures.test_helpers import TestHelper
-
-class TestIntegration:
-    @pytest.mark.asyncio
-    async def test_full_workflow(self, hass):
-        helper = TestHelper(hass)
-        config_entry = await helper.setup_portainer_integration()
-
-        # Test the full integration workflow
-        assert config_entry is not None
-```
+Integration tests live in `tests/integration/`. They cover config-entry setup and
+unload, plus the flow from selected container IDs through coordinator data.
 
 ### Using Fixtures
-The framework provides several useful fixtures:
+`tests/conftest.py` provides reusable test data and mock fixtures:
 
 ```python
-@pytest.mark.asyncio
-async def test_with_hass(hass, config_entry, mock_portainer_api):
-    # Test using Home Assistant instance
-    # Test using config entry
-    # Test using mocked API
-    pass
+def test_with_mock_data(sample_container_data, mock_portainer_api):
+    assert sample_container_data["Id"]
+    assert mock_portainer_api.get_containers()
 ```
 
 ## Test Utilities
@@ -173,10 +172,10 @@ Located in `tests/fixtures/test_environment.py`, provides:
 
 ### Common Fixtures
 Located in `tests/conftest.py`:
-- `hass`: Home Assistant instance
-- `config_entry`: Mock config entry
+- `config_entry`: Home Assistant config entry
 - `mock_portainer_api`: Mock API responses
-- `sample_container_data`: Sample test data
+- `mock_coordinator`, `mock_hass_config`, `mock_aiohttp`, and `mock_requests`
+- `sample_container_data`, `sample_endpoint_data`, and sample configuration data
 
 ## Best Practices
 

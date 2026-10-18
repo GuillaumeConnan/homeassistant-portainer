@@ -266,8 +266,7 @@ When reporting issues, please include:
 
 ### Community Support
 
-- **GitHub Issues**: [Report bugs and feature requests](https://github.com/cbrosius/homeassistant-portainer/issues)
-- **Discussions**: [Community discussions and Q&A](https://github.com/cbrosius/homeassistant-portainer/discussions)
+- **GitHub Issues**: [Report bugs and feature requests](https://github.com/GuillaumeConnan/homeassistant-portainer/issues)
 - **HACS**: Check for integration updates in HACS
 
 ## Best Practices

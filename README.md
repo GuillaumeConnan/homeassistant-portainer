@@ -1,17 +1,20 @@
 # Portainer integration for Home Assistant
-(based on the work of [@tomaae](https://github.com/tomaae/homeassistant-portainer))
+(based on the work of [@tomaae](https://github.com/tomaae/homeassistant-portainer) and [@cbrosius](https://github.com/cbrosius/homeassistant-portainer))
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/cbrosius/homeassistant-portainer?style=plastic)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/GuillaumeConnan/homeassistant-portainer?style=plastic)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=plastic)](https://github.com/hacs/integration)
 ![Project Stage](https://img.shields.io/badge/project%20stage-development-yellow.svg?style=plastic)
-![GitHub all releases](https://img.shields.io/github/downloads/cbrosius/homeassistant-portainer/total?style=plastic)
+![GitHub all releases](https://img.shields.io/github/downloads/GuillaumeConnan/homeassistant-portainer/total?style=plastic)
 
-![GitHub commits since latest release](https://img.shields.io/github/commits-since/cbrosius/homeassistant-portainer/latest?style=plastic)
-![GitHub commit activity](https://img.shields.io/github/commit-activity/m/cbrosius/homeassistant-portainer?style=plastic)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/cbrosius/homeassistant-portainer/ci.yml?style=plastic)
+![GitHub commits since latest release](https://img.shields.io/github/commits-since/GuillaumeConnan/homeassistant-portainer/latest?style=plastic)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/m/GuillaumeConnan/homeassistant-portainer?style=plastic)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/GuillaumeConnan/homeassistant-portainer/ci.yml?style=plastic)
 
-![Portainer Logo](https://raw.githubusercontent.com/cbrosius/homeassistant-portainer/master/docs/assets/images/ui/logo.png)
+![Portainer Logo](https://raw.githubusercontent.com/GuillaumeConnan/homeassistant-portainer/master/docs/assets/images/ui/logo.png)
 
+This is an independently maintained fork of the Portainer integration for Home Assistant, based on the work of [@tomaae](https://github.com/tomaae/homeassistant-portainer) and [@cbrosius](https://github.com/cbrosius/homeassistant-portainer). Releases, support, and issue tracking for this fork are managed in this repository.
+
+> **Important:** This fork uses the same Home Assistant integration domain (`portainer`) as the upstream integration. Install it instead of the upstream integration; the two cannot be installed side by side.
 
 Monitor and control Portainer from Home Assistant.
 
@@ -39,7 +42,7 @@ The endpoint device provides key details and sensors, including:
     *   Counts for unhealthy and stopped containers
     *   Totals for images, volumes, and stacks
 
-![Endpoints](https://raw.githubusercontent.com/cbrosius/homeassistant-portainer/master/docs/assets/images/ui/endpoints.png)
+![Endpoints](https://raw.githubusercontent.com/GuillaumeConnan/homeassistant-portainer/master/docs/assets/images/ui/endpoints.png)
 
 ## Containers
 For each container managed by a Portainer endpoint, a corresponding Home Assistant device is created. This device is automatically linked to its parent endpoint device, making it easy to see which containers belong to which environment.
@@ -57,7 +60,7 @@ The container device provides a central place to monitor its status and details.
      *   Restart Policy
 *   **Controls**: You can control the container directly from Home Assistant using the `portainer.perform_container_action` service. This allows you to `start`, `stop`, `restart`, or `kill` one or more containers, which is perfect for automations and scripts.
 
-![Containers](https://raw.githubusercontent.com/cbrosius/homeassistant-portainer/master/docs/assets/images/ui/containers.png)
+![Containers](https://raw.githubusercontent.com/GuillaumeConnan/homeassistant-portainer/master/docs/assets/images/ui/containers.png)
 
 ## Stacks
 For each stack defined in a Portainer endpoint, a corresponding Home Assistant device is created. This device is linked to its parent endpoint device.
@@ -68,7 +71,7 @@ The stack device provides sensors to monitor its status and composition. Key inf
     *   Container Count: The number of containers running as part of this stack.
 *   **Controls**: You can manage the stack directly from Home Assistant using the `portainer.perform_stack_action` service. This allows you to `start`, `stop` the entire stack.
 
-![Stacks](https://raw.githubusercontent.com/cbrosius/homeassistant-portainer/master/docs/assets/images/ui/stacks.png)
+![Stacks](https://raw.githubusercontent.com/GuillaumeConnan/homeassistant-portainer/master/docs/assets/images/ui/stacks.png)
 
 # Services
 The Portainer integration exposes services to allow direct control over your containers and stacks from Home Assistant automations and scripts.
@@ -96,7 +99,7 @@ data:
 
 As an alternative, you can use the UI to perform this action.
 
-![Perform Container Action](https://raw.githubusercontent.com/cbrosius/homeassistant-portainer/master/docs/assets/images/ui/container_action.png)
+![Perform Container Action](https://raw.githubusercontent.com/GuillaumeConnan/homeassistant-portainer/master/docs/assets/images/ui/container_action.png)
 
 ## `portainer.perform_stack_action`
 This service allows you to perform actions on an entire stack, such as starting or stopping all containers within it.
@@ -121,7 +124,7 @@ data:
 
 As an alternative, you can use the UI to perform this action.
 
-![Perform Stack Action](https://raw.githubusercontent.com/cbrosius/homeassistant-portainer/master/docs/assets/images/ui/stack_action.png)
+![Perform Stack Action](https://raw.githubusercontent.com/GuillaumeConnan/homeassistant-portainer/master/docs/assets/images/ui/stack_action.png)
 
 ## `portainer.recreate_container`
 This service allows you to recreate a container, which stops the container, removes it, and starts a new one with the same configuration. Optionally pulls the latest image before recreating.
@@ -152,7 +155,7 @@ Since this integration is not in the default HACS repository, you must add it as
 1.  **Navigate to HACS**: In Home Assistant, go to `HACS` > `Integrations`.
 2.  **Add Custom Repository**: Click the three-dots menu in the top-right corner and select `Custom repositories`.
 3.  **Add the Repository URL**:
-    *   In the `Repository` field, paste this GitHub repository's URL: `https://github.com/cbrosius/homeassistant-portainer`
+    *   In the `Repository` field, paste this GitHub repository's URL: `https://github.com/GuillaumeConnan/homeassistant-portainer`
     *   In the `Category` dropdown, select `Integration`.
     *   Click `Add`.
 4.  **Install the Integration**: The "Portainer" integration will now appear in your HACS integrations list. Click `Install` and proceed with the installation.
@@ -261,6 +264,6 @@ When debug logging is enabled, you'll see detailed messages that can help diagno
 - **Device conflicts**: Monitor device info creation for identifier collisions.
 
 ### Getting Help
-* Check the [GitHub Issues](https://github.com/cbrosius/homeassistant-portainer/issues) page for known issues
+* Check the [GitHub Issues](https://github.com/GuillaumeConnan/homeassistant-portainer/issues) page for known issues
 * Enable debug logging and check Home Assistant logs for detailed error messages
 * Verify your Portainer instance is accessible and your access token is valid

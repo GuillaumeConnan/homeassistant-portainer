@@ -60,9 +60,12 @@ class TestContainerPerformance:
                     "Image": f"test-image:{i % 10}",
                 }
             )
+        coordinator.selected_containers = {
+            f"test_entry_id_1_test-container-{i}" for i in range(num_containers)
+        }
 
-        def mock_inspect(*args, **kwargs):
-            container_id = args[0].split("/")[-1]  # Extract container ID from URL
+        def mock_inspect(url):
+            container_id = url.split("/")[-2]
             return {
                 "Id": container_id,
                 "State": {"Status": "running"},
@@ -82,7 +85,7 @@ class TestContainerPerformance:
             else:
                 # Inspect call
                 inspect_calls += 1
-                return mock_inspect(args, kwargs)
+                return mock_inspect(args[0])
 
         with patch.object(coordinator.api, "query", side_effect=mock_query_side_effect):
             start_time = time.time()
@@ -124,10 +127,13 @@ class TestContainerPerformance:
                     "Image": "test-image:latest",
                 }
             )
+        coordinator.selected_containers = {
+            f"test_entry_id_1_test-container-{i}" for i in range(num_containers)
+        }
 
-        def mock_inspect(*args, **kwargs):
+        def mock_inspect(url):
             return {
-                "Id": args[0].split("/")[-1],
+                "Id": url.split("/")[-2],
                 "State": {"Status": "running"},
                 "HostConfig": {"NetworkMode": "bridge"},
                 "NetworkSettings": {"Networks": {}},
@@ -135,11 +141,12 @@ class TestContainerPerformance:
                 "Image": "test-image:latest",
             }
 
-        with patch.object(coordinator.api, "query") as mock_query:
-            mock_query.side_effect = [large_container_list] + [
-                mock_inspect() for _ in range(num_containers)
-            ]
+        def query_side_effect(url, *args, **kwargs):
+            if "containers/json" in url:
+                return large_container_list
+            return mock_inspect(url)
 
+        with patch.object(coordinator.api, "query", side_effect=query_side_effect):
             coordinator.get_containers()
 
             # Get final memory usage
@@ -167,11 +174,14 @@ class TestContainerPerformance:
                     "State": "running",
                 }
             )
+        coordinator.selected_containers = {
+            f"test_entry_id_1_slow-container-{i}" for i in range(num_containers)
+        }
 
-        def slow_inspect(*args, **kwargs):
+        def slow_inspect(url):
             time.sleep(0.01)  # Simulate slow API response
             return {
-                "Id": args[0].split("/")[-1],
+                "Id": url.split("/")[-2],
                 "State": {"Status": "running"},
                 "HostConfig": {"NetworkMode": "bridge"},
                 "NetworkSettings": {"Networks": {}},
@@ -179,11 +189,12 @@ class TestContainerPerformance:
                 "Image": "test-image:latest",
             }
 
-        with patch.object(coordinator.api, "query") as mock_query:
-            mock_query.side_effect = [slow_containers] + [
-                slow_inspect() for _ in range(num_containers)
-            ]
+        def query_side_effect(url, *args, **kwargs):
+            if "containers/json" in url:
+                return slow_containers
+            return slow_inspect(url)
 
+        with patch.object(coordinator.api, "query", side_effect=query_side_effect):
             start_time = time.time()
             coordinator.get_containers()
             end_time = time.time()
