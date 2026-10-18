@@ -8,6 +8,7 @@ publishing, move its entries into a dated version section.
 
 ### Added
 
+- Add French translations for the integration configuration, options and services.
 - Expose container removal, forced removal and anonymous-volume removal in the
   Home Assistant service UI. Named volumes are not removed.
 - Publish release notes directly from the matching dated section in this
@@ -17,6 +18,7 @@ publishing, move its entries into a dated version section.
 
 ### Changed
 
+- Require Home Assistant 2026.9.0 or newer.
 - Establish independent releases, documentation and issue tracking for this fork.
 - Fetch stacks once per setup/options selection form and filter them locally by
   selected, reachable endpoints instead of repeating the same request.

@@ -304,7 +304,7 @@ This will show:
 - **Compatible**: Docker API v1.43+
 
 ### Home Assistant Compatibility
-- **Minimum Version**: 2023.9.0
+- **Minimum Version**: 2026.9.0
 - **Python Version**: 3.11+
 - **Dependencies**: None (pure Python implementation)
 
