@@ -20,6 +20,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .const import (
     DEFAULT_DEVICE_NAME,
@@ -82,6 +87,8 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
             # Check if instance with this name already exists
             if user_input[CONF_NAME] in configured_instances(self.hass):
                 errors["base"] = "name_exists"
+            elif not user_input.get(CONF_API_KEY):
+                errors[CONF_API_KEY] = "required_token"
             else:
                 # Test connection
                 self.api = await self.hass.async_add_executor_job(
@@ -137,22 +144,31 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
             else self._get_reconfigure_entry()
         )
         errors = {}
+        if (
+            user_input is not None
+            and step_id == "reauth_confirm"
+            and not user_input.get(CONF_API_KEY)
+        ):
+            return self._show_config_form(
+                user_input, {CONF_API_KEY: "required_token"}, step_id=step_id
+            )
         if user_input is not None:
+            connection = dict(user_input)
+            if step_id == "reconfigure" and not connection.get(CONF_API_KEY):
+                connection[CONF_API_KEY] = entry.data[CONF_API_KEY]
             api = await self.hass.async_add_executor_job(
                 PortainerAPI,
                 self.hass,
-                user_input[CONF_HOST],
-                user_input[CONF_API_KEY],
-                user_input[CONF_SSL],
-                user_input[CONF_VERIFY_SSL],
+                connection[CONF_HOST],
+                connection[CONF_API_KEY],
+                connection[CONF_SSL],
+                connection[CONF_VERIFY_SSL],
             )
             connected, error = await self.hass.async_add_executor_job(
                 api.connection_test
             )
             if connected:
-                return self.async_update_reload_and_abort(
-                    entry, data_updates=user_input
-                )
+                return self.async_update_and_abort(entry, data_updates=connection)
             errors["base"] = _connection_error(error)
         return self._show_config_form(
             user_input if user_input is not None else entry.data,
@@ -177,9 +193,11 @@ class PortainerConfigFlow(ConfigFlow, domain=DOMAIN):
             vol.Required(
                 CONF_HOST, default=str(user_input.get(CONF_HOST, DEFAULT_HOST))
             ): str,
-            vol.Required(
-                CONF_API_KEY, default=str(user_input.get(CONF_API_KEY, ""))
-            ): str,
+            (
+                vol.Optional(CONF_API_KEY)
+                if step_id == "reconfigure"
+                else vol.Required(CONF_API_KEY)
+            ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
             vol.Optional(CONF_SSL, default=user_input.get(CONF_SSL, DEFAULT_SSL)): bool,
             vol.Optional(
                 CONF_VERIFY_SSL,
@@ -420,6 +438,8 @@ class PortainerOptionsFlow(OptionsFlow):
             )
         }
         for device in devices:
+            if device.config_entry_id != entry_id:
+                continue
             if device.model not in identifiers or not any(
                 domain == DOMAIN for domain, _ in device.identifiers
             ):
@@ -434,10 +454,7 @@ class PortainerOptionsFlow(OptionsFlow):
             ):
                 if entity.config_entry_id == entry_id:
                     entities.async_remove(entity.entity_id)
-            if device.config_entries == {entry_id}:
-                registry.async_remove_device(device.id)
-            else:
-                registry.async_update_device(device.id, remove_config_entry_id=entry_id)
+            registry.async_remove_device(device.id)
 
     async def async_step_select_items(self, user_input=None):
         """Keep saved resources selectable even when inventory is unavailable."""

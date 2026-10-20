@@ -24,9 +24,10 @@ class TestPortainerButtons:
         return hass
 
     @pytest.fixture
-    def mock_coordinator(self, container_data, stack_data):
+    def mock_coordinator(self, mock_hass, container_data, stack_data):
         """Create mock coordinator."""
         coordinator = Mock()
+        coordinator.hass = mock_hass
         coordinator.name = "Test Portainer"
         coordinator.config_entry = Mock()
         coordinator.config_entry.entry_id = "test_entry_id"
@@ -116,7 +117,9 @@ class TestPortainerButtons:
         # button._data is already set by PortainerEntity.__init__ because we populated coordinator.data
 
         device_registry = Mock()
-        device_registry.async_get_device.return_value = Mock(id="endpoint-device-id")
+        device_registry.async_get_device_by_identifier.return_value = Mock(
+            id="endpoint-device-id"
+        )
         with patch(
             "custom_components.portainer.entity.dr.async_get",
             return_value=device_registry,
@@ -130,9 +133,10 @@ class TestPortainerButtons:
         assert (DOMAIN, "test_entry_id_1_web-server") in device_info["identifiers"]
         assert device_info["via_device_id"] == "endpoint-device-id"
         get_device_registry.assert_called_once_with(mock_hass)
-        device_registry.async_get_device.assert_called_once_with(
-            identifiers={(DOMAIN, "1_test_entry_id")}
+        device_registry.async_get_device_by_identifier.assert_called_once_with(
+            (DOMAIN, "1_test_entry_id"), "test_entry_id"
         )
+        device_registry.async_get_device.assert_not_called()
 
     def test_container_button_availability_running_state(
         self, mock_hass, mock_coordinator, container_data
@@ -312,7 +316,9 @@ class TestPortainerButtons:
         button.hass = mock_hass
 
         device_registry = Mock()
-        device_registry.async_get_device.return_value = Mock(id="endpoint-device-id")
+        device_registry.async_get_device_by_identifier.return_value = Mock(
+            id="endpoint-device-id"
+        )
         with patch(
             "custom_components.portainer.entity.dr.async_get",
             return_value=device_registry,
@@ -326,9 +332,10 @@ class TestPortainerButtons:
         assert (DOMAIN, "test_entry_id_stack_1") in device_info["identifiers"]
         assert device_info["via_device_id"] == "endpoint-device-id"
         get_device_registry.assert_called_once_with(mock_hass)
-        device_registry.async_get_device.assert_called_once_with(
-            identifiers={(DOMAIN, "1_test_entry_id")}
+        device_registry.async_get_device_by_identifier.assert_called_once_with(
+            (DOMAIN, "1_test_entry_id"), "test_entry_id"
         )
+        device_registry.async_get_device.assert_not_called()
 
     def test_stack_button_availability_active(
         self, mock_hass, mock_coordinator, stack_data

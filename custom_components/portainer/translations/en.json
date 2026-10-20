@@ -13,7 +13,7 @@
             },
             "reconfigure": {
                 "title": "Change Portainer connection",
-                "description": "Update the host, access token or TLS settings without changing your resource selections.",
+                "description": "Update the host, access token or TLS settings without changing your resource selections. Leave the token field empty to keep the current token.",
                 "data": {
                     "host": "Host",
                     "api_key": "Access token",
@@ -59,6 +59,7 @@
             }
         },
         "error": {
+            "required_token": "Enter a new access token.",
             "invalid_auth": "The access token was rejected. Check the token and its permissions.",
             "cannot_connect": "Unable to connect. Check the host and connection settings.",
             "endpoint_fetch_failed": "Unable to fetch endpoints. Check the connection and try again.",

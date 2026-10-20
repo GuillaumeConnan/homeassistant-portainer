@@ -162,7 +162,9 @@ async def async_migrate_entities(
 
         # Stable device identifier format: (DOMAIN, f"{config_entry_id}_{endpoint_id}_{container_name}")
         device_identifier = list(device_info["identifiers"])[0]
-        device = dev_reg.async_get_device(identifiers={device_identifier})
+        device = dev_reg.async_get_device_by_identifier(
+            device_identifier, config_entry.entry_id
+        )
 
         if not device:
             continue
