@@ -465,7 +465,8 @@ def sample_container_data():
 - [ ] No Pylint errors
 - [ ] Documentation updated
 - [ ] Version bumped in manifest.json
-- [ ] Changelog updated
+- [ ] Changelog consolidated into a unique dated release section
+- [ ] CI (including hassfest) and HACS Action pass on the release commit
 
 ### Release Steps
 
@@ -473,13 +474,20 @@ def sample_container_data():
 user-visible changes adds entries under `[Unreleased]`, using `Added`, `Changed`,
 `Fixed`, `Removed`, `Security`, and `Migration notes` as applicable. Describe the
 behavior and migration impact, not just the commit title; link related PRs when useful.
+Consolidate follow-up fixes to the same feature instead of listing development
+iterations. For the first fork release, describe the net differences from
+`cbrosius/homeassistant-portainer` v1.1.6 (`f7ca729`), not inherited features.
+
+The examples below use **v2.0.0**, matching the version already prepared in this
+fork's manifest for its first release. Preparing notes does not publish a release.
 
 1. **Prepare the changelog and version**
 
    Move the accumulated entries from `[Unreleased]` into a section named exactly
    `## [2.0.0] - YYYY-MM-DD`, replacing the date with the real release date. Keep an
    empty `[Unreleased]` section above it for future changes. Update
-   `custom_components/portainer/manifest.json` to `"version": "2.0.0"`.
+   `custom_components/portainer/manifest.json` to `"version": "2.0.0"` if needed.
+   The changelog heading omits the tag's optional `v` prefix.
 
 2. **Run Full Test Suite**
    ```bash
@@ -492,25 +500,55 @@ behavior and migration impact, not just the commit title; link related PRs when 
 
 3. **Preview release notes and check formatting**
    ```bash
-   python .github/generate_releasenotes.py --tag v2.0.0 --output release-notes-preview.md
+   python .github/generate_releasenotes.py --tag v2.0.0 --output /tmp/portainer-release-notes.md
    tox -e lint
    ```
    Review the preview, including security and migration guidance, then remove the
    preview file. Extraction requires a unique dated section with actual content.
    Both `2.0.0` and `v2.0.0` tags map to the `[2.0.0]` section.
 
-4. **Merge the preparation PR, tag its commit on master, then publish the GitHub release**
+4. **Merge the preparation PR and wait for checks on master**
 
-   After merging the preparation changes and updating your checkout:
+   Confirm that the merged commit contains the dated changelog section and the
+   intended manifest version. Wait for **CI** and **HACS Action** to pass on that
+   commit. Publish from `master`, not from the preparation branch.
+
+5. **Create and publish the GitHub release**
+
+   On GitHub, open this repository's **Releases > Draft a new release**:
+
+   - Choose **Create new tag**, enter `v2.0.0`, and target the checked `master`
+     commit.
+   - Use a title such as `Portainer v2.0.0`.
+   - The body may contain the previewed notes; the workflow will replace it with
+     the matching changelog section. Do not use generated commit-based notes as
+     the source of truth.
+   - For a stable release, leave **Set as a pre-release** unchecked and mark it as
+     the latest release, then click **Publish release**.
+
+   Alternatively, create the tag from an up-to-date checkout of the checked
+   `master` commit:
    ```bash
    git tag v2.0.0
    git push origin v2.0.0
    ```
-   Create and publish a GitHub release using that tag. The release workflow checks
-   out the tag, validates and extracts its changelog section, and replaces the
+   Then create and publish a GitHub release using that existing tag. **Pushing a
+   tag alone does not trigger the Release workflow.**
+
+6. **Wait for packaging before announcing or installing**
+
+   In **Actions**, wait for the **Release** workflow to succeed. It checks out the
+   tag, validates and extracts its changelog section, and replaces the
    GitHub release body with that section. It appends a comparison to the nearest
    ancestor version tag when one exists; the first release needs no previous tag.
    The release title is left unchanged.
+
+   The workflow sets the packaged manifest version from the tag (without `v`) and
+   uploads **`portainer.zip`**. It does not commit a version change back to Git.
+   Check that this asset appears in the release; GitHub's automatic **Source code**
+   archives are not a replacement. Inside `portainer.zip`, `manifest.json` and the
+   integration's Python files must be at the archive root, and the manifest version
+   must match the release.
 
    Validation runs before packaging or uploading `portainer.zip`. A missing,
    duplicate, empty or invalidly dated section fails the workflow; it never falls
@@ -518,26 +556,31 @@ behavior and migration impact, not just the commit title; link related PRs when 
    failure does not unpublish the GitHub release or delete existing assets.
    Prepare and preview the notes before publishing.
 
+7. **Verify installation through HACS**
+
+   Follow the [custom-repository installation instructions](../README.md#install-integration)
+   on a backed-up Home Assistant instance running 2026.9.0 or newer. Confirm HACS
+   offers the published version, restart Home Assistant, then check setup,
+   resource selection and entity states. If replacing upstream, retain the
+   existing Home Assistant integration entry.
+
    To correct published notes, update the changelog for a future release rather
    than moving an existing tag. Manual edits to the GitHub release body are not
    the source of truth and will be replaced if its workflow is rerun.
 
 ### Release Deployment Issues
-If you experience issues after deploying a new release:
 
-**GitHub Release Cache Issue:**
-If you reuse a version tag that was previously used for a failed release, GitHub Actions may use cached build artifacts from the previous release instead of building fresh ones.
+- **The Release workflow fails:** read its failing step's log. A missing dated
+  changelog section must be fixed in a new commit and published under a new version
+  tag; rerunning against the same unchanged tag cannot fix its contents. For a
+  transient upload failure, rerun the failed job without moving the tag.
+- **HACS has no installable version:** confirm the release is published, not a
+  draft, and that `portainer.zip` was uploaded successfully. This repository uses
+  `zip_release: true` and `hide_default_branch: true`, so HACS cannot fall back to
+  installing `master`. A prerelease may require enabling beta versions in HACS.
+- **The installed code is unexpected:** check that HACS tracks this fork rather
+  than upstream, inspect the installed `custom_components/portainer/manifest.json`
+  version, and restart Home Assistant after downloading the release.
 
-**Symptoms:**
-- Integration works in development but fails in production
-- No containers are found despite correct configuration
-- API calls succeed but return empty data
-
-**Solutions:**
-1. **Use unique version tags** for each release (recommended)
-2. **Clear GitHub Actions cache** in repository Settings → Actions → Caches
-3. **Force fresh deployment** by updating the release workflow to clear cache when tags are reused
-
-**Verification:**
-- Check that the deployed `manifest.json` version matches your intended release
-- Verify all integration files are present and up-to-date in the HACS integration directory
+Use a new version tag for every changed release. Do not move a published tag or
+assume a deployment problem is caused by an Actions cache.

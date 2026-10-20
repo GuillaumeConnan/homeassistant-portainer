@@ -178,20 +178,43 @@ As an alternative, you can use the UI to perform this action.
 
 
 # Install integration
-This integration is available via the Home Assistant Community Store ([HACS](https://hacs.xyz/)).
+Install this fork through the Home Assistant Community Store
+([HACS](https://hacs.xyz/)) as a custom repository; it is not in the default catalog.
+Home Assistant **2026.9.0 or newer** and a working HACS installation are required.
 
-Since this integration is not in the default HACS repository, you must add it as a custom repository.
+**A published release is required:** this repository's HACS configuration installs
+the `portainer.zip` release asset and hides the default branch. Before installing,
+check that a [release](https://github.com/GuillaumeConnan/homeassistant-portainer/releases)
+has finished building and includes that asset. A tag alone or a draft release is
+not enough.
 
-1.  **Navigate to HACS**: In Home Assistant, go to `HACS` > `Integrations`.
-2.  **Add Custom Repository**: Click the three-dots menu in the top-right corner and select `Custom repositories`.
-3.  **Add the Repository URL**:
-    *   In the `Repository` field, paste this GitHub repository's URL: `https://github.com/GuillaumeConnan/homeassistant-portainer`
-    *   In the `Category` dropdown, select `Integration`.
-    *   Click `Add`.
-4.  **Install the Integration**: The "Portainer" integration will now appear in your HACS integrations list. Click `Install` and proceed with the installation.
-5.  **Restart Home Assistant**: After the installation is complete, you must restart Home Assistant for the integration to be loaded.
+1. Open **HACS** in Home Assistant.
+2. Open the top-right three-dots menu and select **Custom repositories**.
+3. Enter `https://github.com/GuillaumeConnan/homeassistant-portainer`, choose
+   **Integration** as the type, then click **Add**.
+4. Search for **Portainer**, open the repository belonging to
+   **GuillaumeConnan/homeassistant-portainer**, and download the published version.
+5. Restart Home Assistant, then go to **Settings > Devices & services >
+   Add integration > Portainer**.
 
 After restarting, you can proceed with getting your access token and setting up the integration.
+
+## Replacing an upstream installation
+
+Create a Home Assistant backup before switching. This fork and the upstream
+integration both install into `custom_components/portainer`; do not let HACS
+manage both repositories at once.
+
+Remove the upstream repository from HACS, then add and download this fork as
+described above **before restarting Home Assistant**. Removing the old HACS
+download may remove its integration files; the fork must replace them before the
+restart. Do not delete the existing Portainer entry in **Settings > Devices &
+services**: it holds your configuration and resource selections. After restarting,
+check that the entry loads and the expected devices and entities remain available.
+
+For subsequent updates, download the new version in HACS and restart Home
+Assistant. The release procedure for maintainers is documented in
+[Development: Release Process](docs/DEVELOPMENT.md#release-process).
 
 ## Get portainer access token
 1. Login into your portainer instance
@@ -201,7 +224,7 @@ After restarting, you can proceed with getting your access token and setting up 
 5. Copy displayed access token for use in integration setup
 
 ## Setup integration
-Setup this integration for your Portainer in Home Assistant via `Configuration -> Integrations -> Add -> Portainer`.
+Setup this integration for your Portainer in Home Assistant via **Settings > Devices & services > Add integration > Portainer**.
 You can add this integration several times for different portainer instances.
 
 The setup process includes the following steps:
