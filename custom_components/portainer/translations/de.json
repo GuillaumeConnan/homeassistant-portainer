@@ -13,7 +13,7 @@
             },
             "reconfigure": {
                 "title": "Portainer-Verbindung ändern",
-                "description": "Ändern Sie Host, Zugriffstoken oder TLS-Einstellungen, ohne Ihre Auswahl zu ändern.",
+                "description": "Ändern Sie Host, Zugriffstoken oder TLS-Einstellungen, ohne Ihre Auswahl zu ändern. Lassen Sie das Token-Feld leer, um den aktuellen Token beizubehalten.",
                 "data": {
                     "host": "Host",
                     "api_key": "Zugriffstoken",
@@ -59,6 +59,7 @@
             }
         },
         "error": {
+            "required_token": "Geben Sie einen neuen Zugriffstoken ein.",
             "invalid_auth": "Der Zugriffstoken wurde abgelehnt. Prüfen Sie den Token und seine Berechtigungen.",
             "name_exists": "Eine Integration mit diesem Namen existiert bereits.",
             "cannot_connect": "Verbindung fehlgeschlagen. Überprüfen Sie Host und Zugriffstoken.",

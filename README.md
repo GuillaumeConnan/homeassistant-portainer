@@ -90,6 +90,10 @@ TLS settings. A rejected token also starts Home Assistant's reauthentication flo
 New connection details are saved only after a successful connection test; existing
 resource selections are preserved.
 
+Access-token fields are masked and never prefilled, including after a failed
+connection test. Leave the token empty during reconfiguration to keep the saved
+token. Initial setup and reauthentication require a token to be entered.
+
 Integration options retain previously selected resources even when an endpoint
 is offline or a resource is temporarily absent. Historical container selection
 identifiers are accepted automatically. Device cleanup happens only when the

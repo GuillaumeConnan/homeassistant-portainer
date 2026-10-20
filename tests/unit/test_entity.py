@@ -775,7 +775,9 @@ class TestAsyncCreateSensors:
         entity.hass = mock_hass
 
         device_registry = Mock()
-        device_registry.async_get_device.return_value = Mock(id="endpoint-device-id")
+        device_registry.async_get_device_by_identifier.return_value = Mock(
+            id="endpoint-device-id"
+        )
         with patch(
             "custom_components.portainer.entity.dr.async_get",
             return_value=device_registry,
@@ -784,9 +786,10 @@ class TestAsyncCreateSensors:
 
         assert device_info["via_device_id"] == "endpoint-device-id"
         get_device_registry.assert_called_once_with(mock_hass)
-        device_registry.async_get_device.assert_called_once_with(
-            identifiers={("portainer", "1_test_entry_id")}
+        device_registry.async_get_device_by_identifier.assert_called_once_with(
+            ("portainer", "1_test_entry_id"), "test_entry_id"
         )
+        device_registry.async_get_device.assert_not_called()
 
     def test_stack_sensor_uses_endpoint_registry_id(self, mock_coordinator, mock_hass):
         """Test a stack sensor resolves its parent device registry ID."""
@@ -796,7 +799,9 @@ class TestAsyncCreateSensors:
         entity.hass = mock_hass
 
         device_registry = Mock()
-        device_registry.async_get_device.return_value = Mock(id="endpoint-device-id")
+        device_registry.async_get_device_by_identifier.return_value = Mock(
+            id="endpoint-device-id"
+        )
         with patch(
             "custom_components.portainer.entity.dr.async_get",
             return_value=device_registry,
@@ -805,9 +810,10 @@ class TestAsyncCreateSensors:
 
         assert device_info["via_device_id"] == "endpoint-device-id"
         get_device_registry.assert_called_once_with(mock_hass)
-        device_registry.async_get_device.assert_called_once_with(
-            identifiers={("portainer", "1_test_entry_id")}
+        device_registry.async_get_device_by_identifier.assert_called_once_with(
+            ("portainer", "1_test_entry_id"), "test_entry_id"
         )
+        device_registry.async_get_device.assert_not_called()
 
     def test_entity_unique_id_different_data_paths(self, mock_coordinator):
         """Test entity unique_id for different data paths."""

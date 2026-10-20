@@ -55,11 +55,10 @@ def _resolve_device(
         raise HomeAssistantError(f"Device '{device_id}' not found")
     if device.model != model:
         raise HomeAssistantError(f"Device '{device_id}' is not a Portainer {model}")
-    for entry_id in device.config_entries:
-        entry_data = hass.data.get(DOMAIN, {}).get(entry_id, {})
-        coordinator = entry_data.get("coordinator")
-        if coordinator is None:
-            continue
+    entry_id = device.config_entry_id
+    entry_data = hass.data.get(DOMAIN, {}).get(entry_id, {})
+    coordinator = entry_data.get("coordinator")
+    if coordinator is not None:
         prefix = f"{entry_id}_stack_" if model == "Stack" else f"{entry_id}_"
         for domain, identifier in device.identifiers:
             if domain == DOMAIN and identifier.startswith(prefix):

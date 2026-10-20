@@ -38,6 +38,21 @@ publishing, move its entries into a dated version section.
 
 ### Fixed
 
+- Mask access-token inputs without prefilling or echoing secrets after errors.
+  Keep the saved token when reconfiguration leaves the field empty, and require
+  an explicit token for initial setup and reauthentication.
+- Use single config-entry device ownership when removing deselected devices and
+  resolving service targets, replacing `DeviceEntry.config_entries` before its
+  removal in Home Assistant 2027.10.
+- Resolve endpoint devices through the coordinator's Home Assistant instance
+  during entity migration, before sensors and buttons have been added to a
+  platform, so selecting a container no longer breaks platform setup.
+- Let the existing update listener reload the integration after reconfiguration
+  or reauthentication, avoiding duplicate reloads and the Home Assistant 2026.12
+  deprecation warning.
+- Scope device identifier lookups to the config entry and resolve repair targets
+  by their saved registry ID, replacing device lookups removed in Home Assistant
+  2027.8.
 - Preserve saved endpoint, container and stack selections when resources are
   offline or temporarily absent, including selections stored before the first
   options update. Normalize container selection identifiers while accepting

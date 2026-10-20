@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from custom_components.portainer import async_setup_entry, async_unload_entry
+from custom_components.portainer import (
+    _async_update_listener,
+    async_setup_entry,
+    async_unload_entry,
+)
 from custom_components.portainer.const import DOMAIN, PLATFORMS
 
 
@@ -40,6 +44,19 @@ async def test_setup_entry_stores_coordinator_and_forwards_platforms():
         config_entry, PLATFORMS
     )
     config_entry.async_on_unload.assert_called_once()
+    config_entry.add_update_listener.assert_called_once_with(_async_update_listener)
+
+
+@pytest.mark.asyncio
+async def test_update_listener_reloads_entry():
+    """The registered listener handles reloads for connection and options changes."""
+    hass = Mock()
+    hass.config_entries.async_reload = AsyncMock()
+    entry = Mock(entry_id="entry")
+
+    await _async_update_listener(hass, entry)
+
+    hass.config_entries.async_reload.assert_awaited_once_with("entry")
 
 
 @pytest.mark.asyncio

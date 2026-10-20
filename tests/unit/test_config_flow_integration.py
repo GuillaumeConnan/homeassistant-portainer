@@ -1,9 +1,14 @@
 """Tests for Portainer config-flow selection and options handling."""
 
+from types import MappingProxyType
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+import voluptuous as vol
+from homeassistant.config_entries import ConfigEntries, ConfigEntry
+from homeassistant.core import HomeAssistant
 
+from custom_components.portainer import _async_update_listener
 from custom_components.portainer.config_flow import (
     PortainerConfigFlow,
     PortainerOptionsFlow,
@@ -489,6 +494,186 @@ async def test_endpoint_changes_are_staged_until_final_submission(
     assert selection_entry.data["endpoints"] == ["1", "10"]
 
 
+@pytest.mark.parametrize("step", ["user", "reconfigure", "reauth_confirm"])
+def test_token_selector_is_masked_and_never_prefilled(step):
+    """Neither saved nor just-submitted tokens become form defaults."""
+    flow = PortainerConfigFlow()
+    with patch.object(flow, "async_show_form", return_value={}) as show:
+        flow._show_config_form(
+            {"api_key": "secret-token"}, {"base": "cannot_connect"}, step_id=step
+        )
+    schema = show.call_args.kwargs["data_schema"].schema
+    key = next(key for key in schema if key.schema == "api_key")
+    selector = schema[key]
+    assert selector.config["type"] == "password"
+    assert key.default is vol.UNDEFINED
+    assert not key.description or "suggested_value" not in key.description
+    assert isinstance(key, vol.Optional if step == "reconfigure" else vol.Required)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("token", [None, ""])
+@pytest.mark.parametrize("error", ["", 401, "no_response"])
+async def test_reconfigure_empty_token_uses_saved_token(
+    mock_hass, selection_entry, token, error
+):
+    """Blank and omitted tokens keep the existing secret, with validation first."""
+    flow = PortainerConfigFlow()
+    flow.hass = mock_hass
+    credentials = {"host": "new-host", "ssl": True, "verify_ssl": False}
+    if token is not None:
+        credentials["api_key"] = token
+    api = Mock()
+    api.connection_test.return_value = (not error, error)
+    with patch.object(
+        flow, "_get_reconfigure_entry", return_value=selection_entry
+    ), patch(
+        "custom_components.portainer.config_flow.PortainerAPI", return_value=api
+    ) as create_api, patch.object(
+        flow, "async_update_and_abort", return_value={}
+    ) as save, patch.object(
+        flow, "async_show_form", return_value={}
+    ) as show:
+        await flow.async_step_reconfigure(credentials)
+
+    create_api.assert_called_once_with(
+        mock_hass, "new-host", selection_entry.data["api_key"], True, False
+    )
+    if error:
+        save.assert_not_called()
+        defaults = show.call_args.kwargs["data_schema"]({})
+        assert "api_key" not in defaults
+    else:
+        save.assert_called_once_with(
+            selection_entry,
+            data_updates={**credentials, "api_key": selection_entry.data["api_key"]},
+        )
+    assert credentials.get("api_key") == token
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("token", [None, ""])
+@pytest.mark.parametrize("step", ["user", "reauth_confirm"])
+async def test_initial_setup_and_reauth_require_explicit_token(
+    mock_hass, selection_entry, token, step
+):
+    """Missing replacement tokens cannot silently reuse revoked credentials."""
+    flow = PortainerConfigFlow()
+    flow.hass = mock_hass
+    mock_hass.config_entries.async_entries.return_value = []
+    credentials = {
+        "name": "Portainer",
+        "host": "host",
+        "ssl": True,
+        "verify_ssl": True,
+    }
+    if token is not None:
+        credentials["api_key"] = token
+    with patch.object(flow, "_get_reauth_entry", return_value=selection_entry), patch(
+        "custom_components.portainer.config_flow.PortainerAPI"
+    ) as create_api, patch.object(
+        flow, "async_update_and_abort", return_value={}
+    ) as save, patch.object(
+        flow, "async_show_form", return_value={}
+    ) as show:
+        await getattr(flow, f"async_step_{step}")(credentials)
+
+    assert show.call_args.kwargs["errors"] == {"api_key": "required_token"}
+    create_api.assert_not_called()
+    save.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("step", ["reconfigure", "reauth_confirm"])
+async def test_connection_forms_do_not_expose_saved_token(
+    mock_hass, selection_entry, step
+):
+    """Opening either connection form leaves the secret out of its schema."""
+    flow = PortainerConfigFlow()
+    flow.hass = mock_hass
+    with patch.object(
+        flow, "_get_reauth_entry", return_value=selection_entry
+    ), patch.object(
+        flow, "_get_reconfigure_entry", return_value=selection_entry
+    ), patch.object(
+        flow, "async_show_form", return_value={}
+    ) as show:
+        await getattr(flow, f"async_step_{step}")()
+
+    schema = show.call_args.kwargs["data_schema"]
+    assert schema({"api_key": "new-token"})["api_key"] == "new-token"
+    key = next(key for key in schema.schema if key.schema == "api_key")
+    assert key.default is vol.UNDEFINED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["reauth", "reconfigure"])
+async def test_connection_change_reloads_only_through_update_listener(tmp_path, source):
+    """Real config-entry updates notify the listener without a second reload."""
+    hass = HomeAssistant(str(tmp_path))
+    hass.config_entries = ConfigEntries(hass, {})
+    entry = ConfigEntry(
+        version=1,
+        minor_version=1,
+        domain="portainer",
+        title="Portainer",
+        data={
+            "host": "old-host",
+            "api_key": "old-token",
+            "ssl": False,
+            "verify_ssl": True,
+            "endpoints": ["1"],
+            "containers": ["1_web"],
+            "stacks": ["2"],
+        },
+        options={},
+        source="user",
+        unique_id=None,
+        discovery_keys=MappingProxyType({}),
+        subentries_data=None,
+    )
+    hass.config_entries._entries[entry.entry_id] = entry
+    entry.add_update_listener(_async_update_listener)
+    flow = PortainerConfigFlow()
+    flow.hass = hass
+    flow.context = {"source": source}
+    credentials = {
+        "host": "new-host",
+        "api_key": "new-token",
+        "ssl": True,
+        "verify_ssl": False,
+    }
+    api = Mock()
+    api.connection_test.return_value = (True, None)
+
+    with patch.object(flow, "_get_reauth_entry", return_value=entry), patch.object(
+        flow, "_get_reconfigure_entry", return_value=entry
+    ), patch(
+        "custom_components.portainer.config_flow.PortainerAPI", return_value=api
+    ), patch.object(
+        hass.config_entries, "async_reload", new_callable=AsyncMock
+    ) as reload_entry, patch.object(
+        hass.config_entries, "async_schedule_reload"
+    ) as schedule_reload, patch.object(
+        hass.config_entries._store, "async_delay_save"
+    ), patch(
+        "homeassistant.config_entries.report_usage"
+    ) as report_usage:
+        result = await flow._async_step_connection(
+            "reauth_confirm" if source == "reauth" else source, credentials
+        )
+        await hass.async_block_till_done()
+
+    assert result["reason"] == f"{source}_successful"
+    reload_entry.assert_awaited_once_with(entry.entry_id)
+    schedule_reload.assert_not_called()
+    report_usage.assert_not_called()
+    assert all(entry.data[key] == value for key, value in credentials.items())
+    assert entry.data["containers"] == ["1_web"]
+    assert entry.data["stacks"] == ["2"]
+    assert entry.data["endpoints"] == ["1"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("inventory_source", ["coordinator", "registry"])
 async def test_offline_stacks_are_excluded_only_for_explicitly_removed_endpoints(
@@ -575,13 +760,16 @@ async def test_final_cleanup_matches_exact_typed_identifiers(
 ):
     """Removing stack/endpoint 1 never removes stack/endpoint 10 or other types."""
 
-    def device(identifier, model, device_id, parent=None, domain="portainer"):
+    def device(
+        identifier, model, device_id, parent=None, domain="portainer", entry_id="entry"
+    ):
         return Mock(
+            spec=["identifiers", "model", "id", "via_device_id", "config_entry_id"],
             identifiers={(domain, identifier)},
             model=model,
             id=device_id,
             via_device_id=parent,
-            config_entries={"entry"},
+            config_entry_id=entry_id,
         )
 
     devices = [
@@ -594,6 +782,13 @@ async def test_final_cleanup_matches_exact_typed_identifiers(
         device("entry_stack_1", "Container", "wrong_type"),
         device("entry_stack_1", "Stack", "foreign_domain", "endpoint1", domain="other"),
         device("entry_1_web_api_extra", "Container", "similar_name"),
+        device(
+            "entry_1_web_api",
+            "Container",
+            "foreign_entry",
+            "endpoint1",
+            entry_id="other",
+        ),
     ]
     flow = PortainerOptionsFlow()
     flow.hass = mock_hass
@@ -622,6 +817,7 @@ async def test_final_cleanup_matches_exact_typed_identifiers(
         call.args == ("sensor.own",)
         for call in entities.async_get.return_value.async_remove.call_args_list
     )
+    registry.async_get.return_value.async_update_device.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -648,7 +844,7 @@ async def test_connection_update_validates_before_saving_and_keeps_selections(
     ), patch(
         "custom_components.portainer.config_flow.PortainerAPI", return_value=api
     ), patch.object(
-        flow, "async_update_reload_and_abort", return_value={}
+        flow, "async_update_and_abort", return_value={}
     ) as save, patch.object(
         flow, "async_show_form", return_value={}
     ) as show:
@@ -658,8 +854,8 @@ async def test_connection_update_validates_before_saving_and_keeps_selections(
         assert show.call_args.kwargs["errors"] == {
             "base": "invalid_auth" if error in (401, 403) else "cannot_connect"
         }
-        defaults = show.call_args.kwargs["data_schema"]({})
-        assert defaults == credentials
+        defaults = show.call_args.kwargs["data_schema"]({"api_key": "replacement"})
+        assert defaults == {**credentials, "api_key": "replacement"}
     else:
         save.assert_called_once_with(selection_entry, data_updates=credentials)
     assert selection_entry.data["containers"] == [

@@ -119,7 +119,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -186,13 +186,13 @@ class TestPortainerServices:
         device1 = Mock()
         device1.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device1.model = "Container"
-        device1.config_entries = {"test_entry_id"}
+        device1.config_entry_id = "test_entry_id"
         device1.id = "device_1"
 
         device2 = Mock()
         device2.identifiers = {("portainer", "test_entry_id_1_database")}
         device2.model = "Container"
-        device2.config_entries = {"test_entry_id"}
+        device2.config_entry_id = "test_entry_id"
         device2.id = "device_2"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -231,13 +231,13 @@ class TestPortainerServices:
         device1 = Mock()
         device1.identifiers = {("portainer", "entry_1_1_web-server")}
         device1.model = "Container"
-        device1.config_entries = {"entry_1"}
+        device1.config_entry_id = "entry_1"
         device1.id = "device_1"
 
         device2 = Mock()
         device2.identifiers = {("portainer", "entry_2_2_database")}
         device2.model = "Container"
-        device2.config_entries = {"entry_2"}
+        device2.config_entry_id = "entry_2"
         device2.id = "device_2"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -288,7 +288,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -340,7 +340,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_test-container")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -394,7 +394,7 @@ class TestPortainerServices:
             device_entry = Mock()
             device_entry.identifiers = {("portainer", "test_entry_id_1_nonexistent")}
             device_entry.model = "Container"
-            device_entry.config_entries = {"test_entry_id"}
+            device_entry.config_entry_id = "test_entry_id"
             mock_device_reg = Mock()
             mock_device_reg.async_get = Mock(return_value=device_entry)
             mock_dr.async_get.return_value = mock_device_reg
@@ -428,7 +428,7 @@ class TestPortainerServices:
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_stack_1")}
         device_entry.model = "Stack"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -487,7 +487,7 @@ class TestPortainerServices:
             device_entry = MagicMock()
             device_entry.identifiers = {("portainer", "invalid_stack_id")}
             device_entry.model = "Stack"
-            device_entry.config_entries = {"test_entry_id"}
+            device_entry.config_entry_id = "test_entry_id"
 
             mock_device_reg = MagicMock()
             mock_device_reg.async_get.return_value = device_entry
@@ -520,7 +520,7 @@ class TestPortainerServices:
             device_entry = MagicMock()
             device_entry.identifiers = {("portainer", "test_entry_id_stack_999")}
             device_entry.model = "Stack"
-            device_entry.config_entries = {"test_entry_id"}  # Set, not dict
+            device_entry.config_entry_id = "test_entry_id"
 
             mock_device_reg = MagicMock()
             mock_device_reg.async_get.return_value = device_entry
@@ -556,7 +556,7 @@ class TestPortainerServices:
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
             mock_device_reg = MagicMock()
@@ -606,7 +606,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -647,7 +647,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -680,7 +680,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = set(["test_entry_id"])
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -734,7 +734,7 @@ class TestPortainerServices:
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "malformed_identifier")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -769,7 +769,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("other_domain", "device_1")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"other_entry"}
+        device_entry.config_entry_id = "other_entry"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -796,7 +796,7 @@ class TestPortainerServices:
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -847,7 +847,7 @@ class TestPortainerServices:
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -914,7 +914,7 @@ class TestPortainerServices:
 
         device = Mock(
             model="Container",
-            config_entries={"entry"},
+            config_entry_id="entry",
             identifiers={(DOMAIN, "entry_1_web")},
         )
         mock_coordinator.api.error = api_error
@@ -941,7 +941,7 @@ class TestPortainerServices:
 
         device = Mock(
             model="Stack",
-            config_entries={"entry"},
+            config_entry_id="entry",
             identifiers={(DOMAIN, "entry_stack_1")},
         )
 
@@ -973,7 +973,7 @@ class TestPortainerServices:
         devices = [
             Mock(
                 model="Container",
-                config_entries={"entry"},
+                config_entry_id="entry",
                 identifiers={(DOMAIN, f"entry_1_{name}")},
             )
             for name in ("web", "database")
@@ -1001,7 +1001,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = set(["test_entry_id"])
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -1054,7 +1054,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_stack_1")}
         device_entry.model = "Stack"
-        device_entry.config_entries = set(["test_entry_id"])
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -1122,7 +1122,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"missing_entry"}
+        device_entry.config_entry_id = "missing_entry"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -1157,7 +1157,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -1221,7 +1221,7 @@ class TestPortainerServices:
         """A failed remote deletion must neither erase local devices nor look successful."""
         device = Mock(
             identifiers={("portainer", "test_entry_id_1_web-server")},
-            config_entries={"test_entry_id"},
+            config_entry_id="test_entry_id",
         )
         device.model = "Container"
         mock_coordinator.get_specific_container.return_value = {
@@ -1260,7 +1260,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_database")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -1324,7 +1324,7 @@ class TestPortainerServices:
         device_entry = MagicMock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         # Mock entity registry
@@ -1395,7 +1395,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -1457,7 +1457,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         mock_entity_entry = Mock()
@@ -1526,13 +1526,13 @@ class TestPortainerServices:
         device1 = MagicMock()
         device1.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device1.model = "Container"
-        device1.config_entries = {"test_entry_id"}
+        device1.config_entry_id = "test_entry_id"
         device1.id = "device_1"
 
         device2 = MagicMock()
         device2.identifiers = {("portainer", "test_entry_id_1_database")}
         device2.model = "Container"
-        device2.config_entries = {"test_entry_id"}
+        device2.config_entry_id = "test_entry_id"
         device2.id = "device_2"
 
         # Mock entity registry entries
@@ -1603,7 +1603,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
@@ -1660,7 +1660,7 @@ class TestPortainerServices:
         device_entry = Mock()
         device_entry.identifiers = {("portainer", "test_entry_id_1_web-server")}
         device_entry.model = "Container"
-        device_entry.config_entries = {"test_entry_id"}
+        device_entry.config_entry_id = "test_entry_id"
         device_entry.id = "device_1"
 
         with patch("custom_components.portainer.services.dr") as mock_dr:
