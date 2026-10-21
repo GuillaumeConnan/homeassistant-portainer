@@ -66,6 +66,8 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
         config_entry, PLATFORMS
     )
     if unload_ok:
+        coordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
+        await coordinator.async_shutdown()
         # Pop the coordinator data for this entry
         hass.data[DOMAIN].pop(config_entry.entry_id)
 

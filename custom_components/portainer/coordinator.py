@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from asyncio import Lock as Asyncio_lock, wait_for as asyncio_wait_for
+from asyncio import CancelledError, Lock as Asyncio_lock, wait_for as asyncio_wait_for
 from datetime import timedelta
 from logging import getLogger
 
@@ -132,6 +132,11 @@ class PortainerCoordinator(DataUpdateCoordinator):
         if not self.create_action_buttons:
             _LOGGER.info("Action Buttons will not be created for %s", self.name)
 
+    async def async_shutdown(self) -> None:
+        """Stop refreshes and release the API session."""
+        await super().async_shutdown()
+        await self.api.async_close()
+
     # ---------------------------
     #   connected
     # ---------------------------
@@ -150,6 +155,9 @@ class PortainerCoordinator(DataUpdateCoordinator):
     # ---------------------------
     async def _async_update_data(self) -> dict:
         """Update Portainer data."""
+        if self._shutdown_requested:
+            raise CancelledError
+
         lock_acquired = False
         try:
             await asyncio_wait_for(self.lock.acquire(), timeout=10)
@@ -164,21 +172,19 @@ class PortainerCoordinator(DataUpdateCoordinator):
             self.raw_data = {}
             _LOGGER.debug("Starting Portainer data update for %s", self.name)
 
-            # Get endpoints first
-            await self.hass.async_add_executor_job(self.get_endpoints)
-            _LOGGER.debug(
-                "Retrieved %d endpoints", len(self.raw_data.get("endpoints", {}))
-            )
-
-            # Get containers for each endpoint
-            await self.hass.async_add_executor_job(self.get_containers)
-            _LOGGER.debug(
-                "Retrieved %d containers", len(self.raw_data.get("containers", {}))
-            )
-
-            # Get stacks
-            await self.hass.async_add_executor_job(self.get_stacks)
-            _LOGGER.debug("Retrieved %d stacks", len(self.raw_data.get("stacks", {})))
+            for dataset, fetch in (
+                ("endpoints", self.get_endpoints),
+                ("containers", self.get_containers),
+                ("stacks", self.get_stacks),
+            ):
+                if self._shutdown_requested:
+                    raise CancelledError
+                await self.hass.async_add_executor_job(fetch)
+                if self._shutdown_requested:
+                    raise CancelledError
+                _LOGGER.debug(
+                    "Retrieved %d %s", len(self.raw_data.get(dataset, {})), dataset
+                )
 
             offline_endpoints = {
                 str(eid)
@@ -195,8 +201,13 @@ class PortainerCoordinator(DataUpdateCoordinator):
             # its parent endpoint device.
             self._create_endpoint_devices()
             _LOGGER.debug("Created endpoint devices")
+        except CancelledError:
+            self.raw_data = previous_data
+            raise
         except Exception as error:
             self.raw_data = previous_data
+            if self._shutdown_requested:
+                raise CancelledError from error
             if str(self.api.error) in ("401", "403"):
                 raise ConfigEntryAuthFailed(
                     "Portainer access token was rejected"

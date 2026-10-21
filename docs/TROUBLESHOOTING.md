@@ -34,6 +34,21 @@ Settings > System > Logs > Filter: "portainer"
 
 ## Common Issues
 
+### Unauthorized (401) When Removing the Integration
+
+A `401 Unauthorized` response means Portainer rejected the configured API token.
+This can happen if the token is revoked while Home Assistant is still polling,
+just before the integration is removed.
+
+Unloading the integration stops scheduled refreshes, prevents new API requests,
+and closes the HTTP session after any running request finishes. Request failures
+that finish during shutdown are logged at debug level; authentication failures
+while the integration is active still produce warnings and trigger reauthentication.
+
+If you are retiring the integration, remove it from Home Assistant before revoking
+its token in Portainer. If you intend to keep it, replace the rejected token using
+the integration's reauthentication prompt.
+
 ### Containers Not Appearing
 
 **Symptoms:**

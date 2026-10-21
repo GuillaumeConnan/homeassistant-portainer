@@ -12,6 +12,13 @@ them into a dated version section.
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop refreshes and new API requests when unloading the integration, and close
+  the HTTP session after running requests finish. Late request failures during
+  shutdown are logged at debug level and do not trigger reauthentication;
+  authentication failures while the integration is active remain visible.
+
 ## [2.0.0] - 2026-10-20
 
 ### Added

@@ -69,6 +69,7 @@ class TestPortainerCoordinator:
         api.query = Mock(return_value=[])
         api.error = ""
         api.recreate_container = Mock()
+        api.async_close = AsyncMock()
         return api
 
     @pytest.fixture
@@ -155,6 +156,53 @@ class TestPortainerCoordinator:
 
         mock_api.connected.return_value = False
         assert coordinator.connected() is False
+
+    @pytest.mark.asyncio
+    async def test_shutdown_stops_refreshes_and_closes_api(self, coordinator, mock_api):
+        """Shutdown cancels scheduled work and closes the HTTP session."""
+        cancel_refresh = Mock()
+        coordinator._unsub_refresh = cancel_refresh
+
+        await coordinator.async_shutdown()
+
+        assert coordinator._shutdown_requested is True
+        cancel_refresh.assert_called_once()
+        mock_api.async_close.assert_awaited_once()
+        with pytest.raises(asyncio.CancelledError):
+            await coordinator._async_update_data()
+        coordinator.hass.async_add_executor_job.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("auth_failure", [False, True])
+    async def test_shutdown_during_refresh_stops_remaining_fetches(
+        self, coordinator, mock_api, auth_failure
+    ):
+        """A late response cannot fetch more data or trigger reauth on unload."""
+        started = asyncio.Event()
+        finish = asyncio.Event()
+        previous_data = coordinator.raw_data
+
+        async def executor(func):
+            started.set()
+            await finish.wait()
+            if auth_failure:
+                mock_api.error = 401
+                raise UpdateFailed("Unauthorized")
+
+        coordinator.hass.async_add_executor_job = AsyncMock(side_effect=executor)
+        task = asyncio.create_task(coordinator._async_update_data())
+        try:
+            await asyncio.wait_for(started.wait(), timeout=5)
+            await coordinator.async_shutdown()
+        finally:
+            finish.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert coordinator.raw_data is previous_data
+        assert not coordinator.lock.locked()
+        coordinator.hass.async_add_executor_job.assert_awaited_once()
+        coordinator.config_entry.async_start_reauth_if_available.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_async_update_data_success(self, coordinator, mock_api):
