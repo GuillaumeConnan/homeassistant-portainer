@@ -1,6 +1,8 @@
 """Unit tests for Portainer API."""
 
 import asyncio
+import logging
+from threading import Event
 import pytest
 from unittest.mock import MagicMock, patch, Mock
 import requests
@@ -80,6 +82,73 @@ class TestPortainerAPI:
         assert api.error == ""
         api._error = "test_error"
         assert api.error == "test_error"
+
+    @pytest.mark.parametrize("method", ["GET", "POST", "PUT", "DELETE"])
+    def test_closed_api_does_not_send_requests(self, api, mock_session, method):
+        """A queued query cannot reopen the session after it has been closed."""
+        api._session = mock_session
+        api._connected = True
+
+        api.close()
+        assert api.connected() is False
+        assert api.query("endpoints", method) is None
+
+        assert api.error == "closed"
+        mock_session.close.assert_called_once()
+        for name in ("get", "post", "put", "delete"):
+            getattr(mock_session, name).assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_close_waits_for_inflight_request(self, api, mock_session, caplog):
+        """A late 401 during shutdown is debug-only and precedes session close."""
+        started = Event()
+        finish = Event()
+        response = Mock(status_code=401)
+        response.raise_for_status.side_effect = requests.HTTPError("Unauthorized")
+
+        def get(*args, **kwargs):
+            started.set()
+            assert finish.wait(timeout=5)
+            return response
+
+        mock_session.get.side_effect = get
+        api._session = mock_session
+        api._hass.async_add_executor_job = asyncio.to_thread
+        with caplog.at_level(logging.DEBUG, logger="custom_components.portainer.api"):
+            query = asyncio.create_task(asyncio.to_thread(api.query, "endpoints"))
+            close = None
+            try:
+                assert await asyncio.to_thread(started.wait, 5)
+                close = asyncio.create_task(api.async_close())
+                await asyncio.sleep(0)
+                assert api._closing.is_set()
+                mock_session.close.assert_not_called()
+            finally:
+                finish.set()
+                await query
+                if close is not None:
+                    await close
+
+        mock_session.close.assert_called_once()
+        assert api.connected() is False
+        assert api.error == 401
+        assert any("Unauthorized" in record.message for record in caplog.records)
+        assert not any(record.levelno >= logging.WARNING for record in caplog.records)
+
+    def test_active_auth_failure_remains_a_warning(self, api, mock_session, caplog):
+        """Do not hide rejected credentials while the integration is active."""
+        api._session = mock_session
+        response = Mock(status_code=401)
+        response.raise_for_status.side_effect = requests.HTTPError("Unauthorized")
+        mock_session.get.return_value = response
+
+        assert api.query("endpoints") is None
+
+        assert api.error == 401
+        assert any(
+            record.levelno == logging.WARNING and "Unauthorized" in record.message
+            for record in caplog.records
+        )
 
     def test_connection_test_success(self, api, mock_session):
         """Test successful connection test."""

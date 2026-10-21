@@ -3,7 +3,7 @@
 import json
 import requests
 from logging import getLogger
-from threading import Lock
+from threading import Event, Lock
 from typing import Any, Optional
 
 
@@ -44,8 +44,21 @@ class PortainerAPI(object):
                 self._host,
             )
         self.lock = Lock()
+        self._closing = Event()
         self._connected = False
         self._error = ""
+
+    async def async_close(self) -> None:
+        """Stop new requests and close the session outside the event loop."""
+        self._closing.set()
+        await self._hass.async_add_executor_job(self.close)
+
+    def close(self) -> None:
+        """Close the session after any running request has finished."""
+        self._closing.set()
+        with self.lock:
+            self._session.close()
+            self._connected = False
 
     # ---------------------------
     #   connected
@@ -87,6 +100,12 @@ class PortainerAPI(object):
 
         response = None
         try:
+            if self._closing.is_set():
+                self._connected = False
+                self._error = "closed"
+                _LOGGER.debug("Ignoring Portainer query during shutdown: %s", service)
+                return None
+
             url = f"{self._url}{service}"
             if method == "GET":
                 _LOGGER.debug("Portainer API call (GET): %s, params=%s", url, params)
@@ -121,7 +140,8 @@ class PortainerAPI(object):
             self._error = (
                 response.status_code if response is not None else "no_response"
             )
-            _LOGGER.warning(
+            log = _LOGGER.debug if self._closing.is_set() else _LOGGER.warning
+            log(
                 'Portainer %s unable to fetch data "%s" (%s): %s',
                 self._host,
                 service,
